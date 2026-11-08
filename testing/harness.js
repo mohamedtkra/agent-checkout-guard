@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { DEMO_AGENTS } from '../engine/catalog.js';
+import { checkoutPayload } from '../engine/agent-directory.js';
 import { Connections, loadSigner } from '../src/connections.js';
 import { openDatabase } from '../src/db.js';
 import { Guard } from '../engine/guard.js';
@@ -50,7 +51,9 @@ class TestGuard extends Guard {
 
   // Most tests care about the charge, so executed purchases settle at once unless a test opts out.
   checkout(details) {
-    const result = super.checkout(details);
+    const agentId = this.getPurchase(details.purchaseId)?.agentId;
+    const signature = details.signature ?? (agentId ? this.agentDirectory.sign(agentId, checkoutPayload(details)) : undefined);
+    const result = super.checkout({ ...details, signature });
     return this.autoSettle && result.status === 'held' ? this.settleCharge(result.id) : result;
   }
 

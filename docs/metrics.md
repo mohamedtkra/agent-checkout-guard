@@ -18,6 +18,8 @@
 | Time to refund | Time from a refund request being submitted to it reaching Refunded | TBD | TBD |
 | Refund rate | Share of charged purchases that end in a Refunded request | TBD | TBD |
 | Limit breaches | Number of charges that take agent spending past the allocation, available credit, or an agent's share | TBD | 0 |
+| Unverified agents refused | Number of checkouts stopped because the merchant could not verify the agent | TBD | TBD |
+| Plans changed before running | Share of agent plans where the customer removes an item or does it themselves | TBD | TBD |
 | Approved purchases declined at checkout | Share of customer-approved purchases later declined because a limit was used up first | TBD | TBD |
 
 ## Measurement plan

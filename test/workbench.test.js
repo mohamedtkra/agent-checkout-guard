@@ -97,7 +97,7 @@ test('shares that fit apply, and no agents selected warns', () => {
   assert.match(configWarnings(normalizeConfig({ ...config, agents: [] }))[0], /at least one agent/);
 });
 
-test('the six feature blocks are offered', () => {
+test('the feature blocks are offered', () => {
   assert.deepEqual(FEATURE_BLOCKS.map((b) => b.label), [
     'Step-up verification and consent',
     'Approval with 3-day expiry and reminders',
@@ -105,6 +105,7 @@ test('the six feature blocks are offered', () => {
     'Split by agent',
     'Report and refund tracking',
     'Overreach detection and auto-pause',
+    'Verified agent at checkout',
   ]);
 });
 

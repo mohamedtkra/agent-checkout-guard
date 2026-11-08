@@ -43,16 +43,16 @@ npm test
 ### Try it
 
 1. Sign in with any made-up email and the code shown on screen.
-2. On **Agents**, connect a demo agent. Enter the step-up code, set its limits, and review the consent screen. This screen also shows your agent allocation, open holds, and spending by agent and category. Change the allocation or split it by company on **Rules**.
-3. On **Shop**, choose the agent and send it shopping. It tries six purchases at mock merchants.
-4. When a purchase needs your decision, the app opens **Approve**.
-5. While a purchase waits for approval, use **Simulate next day** on **Shop** to see the reminders and the auto-deny on day 3.
-6. Use **Simulate agent overreach** on **Shop** to watch the guard block an out-of-bounds purchase. Each tap tries a different one.
+2. On **Agents**, connect an agent. Enter the step-up code, pick a trust level, and review the consent screen. Change the allocation or split it by company on **Rules**.
+3. On **Home**, use **Review the plan** to see what the agent intends to buy. Remove anything you don't want, then proceed.
+4. When a purchase needs your decision, it slides up from the bottom of **Home**. Approve it, deny it, or buy it yourself. Use **Stop all agents** at any time.
+5. While a purchase waits for approval, use **Simulate next day** under **Demo tools** on **Home** to see the reminders and the auto-deny on day 3.
+6. Use **Simulate agent overreach** under **Demo tools** to watch the guard block an out-of-bounds purchase. Each tap tries a different one.
 7. Use **Simulate charge that slips past the guard** to see a charge flagged in red, agents paused, and the customer alerted.
-8. On **Activity**, use **Report a problem** on a purchase, then follow the request on **Refunds** with **Simulate next step**.
-9. On a paid purchase, use **View purchase details** to see the item picture, its details, and the merchant's information.
+8. On **Activity**, open **Log**, use **Report a problem** on a purchase, and follow the request with **Simulate next step**.
+9. On **Activity**, tap any purchase to see its receipt, the merchant, and why it happened.
 10. On **Agents**, connect a second agent, then try **Edit permissions** or **Revoke**. Revoking one agent leaves the others working.
-11. Use **Reset demo** on **Shop** to clear purchases and rules. Connected agents and the audit log are kept.
+11. Use **Reset demo** under **Demo tools** to clear purchases and rules. Connected agents and the audit log are kept.
 
 The guard logic lives in `engine/` and is shared by this app and the workbench (`workbench.html`, `workbench/`).
 

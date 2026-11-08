@@ -26,16 +26,18 @@ export function buildSpec(config) {
   if (features.approvals) {
     rules.push(`Purchases above ${dollars(config.approval)} need the customer's approval. Requests send reminders on day 1 and day 2, and auto-deny on day 3.`);
   }
-  if (features.stepUpConsent) rules.push('Connecting an agent needs a step-up code and an explicit consent screen.');
+  if (features.stepUpConsent) rules.push('Connecting an agent needs a step-up code and an explicit consent screen, including a trust level that starts at "Ask me every time".');
+  if (features.agentVerification) rules.push('The merchant verifies a signature from the agent before any charge. Unverified agents are refused.');
   if (features.overreach) rules.push('A charge outside the rules is flagged, all agents pause, and the customer is alerted.');
 
   const flow = [
     features.stepUpConsent ? 'The customer connects an agent, confirms a step-up code, and allows the consent screen.' : 'The customer connects an agent.',
+    'The customer reviews the agent\'s plan, removes anything unwanted, and tells it to proceed.',
     `The agent shops at ${scenario.merchants.map(([, name]) => name).join(', ')}.`,
   ];
   if (features.approvals) flow.push('The customer approves or denies larger purchases on their phone.');
   flow.push(features.creditHolds ? 'At checkout, the guard checks the limits and places a hold, which becomes a charge when the purchase settles.' : 'At checkout, the guard re-checks the purchase and charges it.');
-  flow.push('The customer follows everything in the live activity log and can revoke an agent at any time.');
+  flow.push('The customer follows everything in the activity log, sees why each purchase happened, and can stop all agents at any time.');
   if (features.refunds) flow.push('The customer reports a problem and tracks the refund through Submitted, Under review, Merchant contacted, and Refunded or Declined.');
 
   const metrics = ['False blocks: share of purchases within the rules that are wrongly stopped.'];
@@ -49,6 +51,7 @@ export function buildSpec(config) {
     metrics.push('Time to refund: time from a request being submitted to Refunded.');
     metrics.push('Refund rate: share of charged purchases that end in a refund.');
   }
+  if (features.agentVerification) metrics.push('Unverified agents refused: checkouts stopped because the merchant could not verify the agent.');
   if (features.stepUpConsent) metrics.push('Connection completion: share of started connections that reach Allow.');
 
   return {

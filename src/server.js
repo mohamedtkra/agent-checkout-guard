@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { UNCLEARED_CHARGE } from '../engine/agent.js';
+import { createAgentDirectory } from './agent-directory.js';
 import { Auth, SESSION_MS } from './auth.js';
 import { ASSET_PATHS, DEMO_AGENTS } from '../engine/catalog.js';
 import { Connections, demoAgent, loadSigner } from './connections.js';
@@ -21,13 +22,15 @@ const STATIC_FILES = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/styles.css': ['styles.css', 'text/css; charset=utf-8'],
+  '/shared/ui.js': ['../shared/ui.js', 'text/javascript; charset=utf-8'],
+  '/shared/design.css': ['../shared/design.css', 'text/css; charset=utf-8'],
   ...Object.fromEntries(ASSET_PATHS.map((path) => [path, [path.slice(1), 'image/svg+xml']])),
 };
 
 const db = openDatabase(DATABASE_PATH);
 const auth = new Auth(db);
 const connections = new Connections(db, loadSigner(`${dirname(DATABASE_PATH)}/consent-signing-key.pem`));
-const wallets = new Wallets({ db, connections });
+const wallets = new Wallets({ db, connections, agentDirectory: createAgentDirectory() });
 
 function sendJson(res, status, body, headers = {}) {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers });
@@ -146,6 +149,7 @@ function handleConnections(res, pathname, body, { user, token, guard }) {
 function handleWallet(res, pathname, body, { user, guard, agent }) {
   const decision = pathname.match(/^\/api\/purchases\/([\w-]+)\/decision$/);
   const report = pathname.match(/^\/api\/purchases\/([\w-]+)\/report$/);
+  const takeOver = pathname.match(/^\/api\/purchases\/([\w-]+)\/takeover$/);
   const refundStep = pathname.match(/^\/api\/refunds\/([\w-]+)\/advance$/);
   const revoke = pathname.match(/^\/api\/connections\/([\w-]+)\/revoke$/);
 
@@ -153,8 +157,16 @@ function handleWallet(res, pathname, body, { user, guard, agent }) {
     guard.setRules(body);
   } else if (revoke) {
     guard.revokeConnection(revoke[1]);
+  } else if (pathname === '/api/agent/plan') {
+    return sendJson(res, 200, agent.plan());
   } else if (pathname === '/api/agent/run') {
-    if (!agent.run(agentTokenFor(user, body.connectionId))) throw new GuardError('The agent is already shopping.', 409);
+    const { items } = body;
+    if (!Array.isArray(items) || items.length === 0 || !items.every(Number.isInteger)) throw new GuardError('Choose at least one item.');
+    if (!agent.run(agentTokenFor(user, body.connectionId), { items })) throw new GuardError('The agent is already shopping.', 409);
+  } else if (pathname === '/api/agents/stop-all') {
+    guard.stopAllAgents();
+  } else if (takeOver) {
+    guard.takeOver(takeOver[1]);
   } else if (pathname === '/api/agent/overreach') {
     if (!agent.simulateOverreach(agentTokenFor(user, body.connectionId))) throw new GuardError('The agent is already shopping.', 409);
   } else if (pathname === '/api/agent/resume') {

@@ -21,6 +21,19 @@ A running log of significant project decisions. Add new entries at the top, and 
 
 ## Log
 
+## 010: Follow Visa's approach to agent identity, and design around the moment of payment
+
+- **Date:** 2026-11-08
+- **Status:** Accepted
+
+**Context:** Research into what card networks, banks, and technology companies are building showed that willingness to delegate drops sharply at the moment of payment, and that trust depends on actions being reversible, accountability being clear, and consent being explicit. Visa's Intelligent Commerce and Trusted Agent Protocol also add two things the guard lacked: proof to the merchant that an agent is genuine, and signals about each transaction.
+
+**Decision:** The merchant verifies a signature from the agent before any charge, and refuses unverified agents. Each purchase carries a transaction signal and a trail explaining why it happened, which becomes the evidence on a refund request. Agents start at the most cautious trust level. The customer reviews the agent's plan before it shops, can see why it chose each item, can buy an item themselves instead, and has one button to stop all agents. Home is built around what needs the customer. This is modeled on Visa's approach and does not use Visa's systems, name, or logo in the product.
+
+**Alternatives considered:** Integrating with Visa's real developer tools needs a developer account and is a much larger step than a prototype needs. Keeping the previous screens would have left the highest-stakes moment with the least explanation.
+
+**Consequences:** New agents ask for approval on every purchase until the customer raises their trust level, which is more tapping at first. Stop all agents pauses agents rather than disconnecting them, so it can be undone. The app uses Ed25519 agent signatures, while the browser-only workbench uses a stand-in that shows the flow but is not real cryptography.
+
 ## 009: The guard's capabilities are composable feature blocks
 
 - **Date:** 2026-11-08

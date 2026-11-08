@@ -12,7 +12,8 @@ The product uses mock merchants and test card tokens only, with no real payments
 
 Agent Checkout Guard borrows ideas from two emerging agent payment protocols. It does not implement or interoperate with either one. See [decision 005](decisions.md).
 
-- **[Agentic Commerce Protocol](https://developers.openai.com/commerce/specs/payment) (ACP):** [Co-developed by OpenAI and Stripe](https://stripe.com/newsroom/news/stripe-openai-instant-checkout). Its Delegated Payment Spec limits a payment token by a maximum amount and an expiry, so an agent never holds an unrestricted card. The per-agent scoped test tokens here follow that idea.
+- **[Agentic Commerce Protocol](https://developers.openai.com/commerce/specs/payment) (ACP):** [Co-developed by OpenAI and Stripe](https://stripe.com/newsroom/news/stripe-openai-instant-checkout). Its Delegated Payment Spec limits a payment token by a maximum amount and an expiry, so an agent never holds an unrestricted card. The per-agent scoped test tokens here follow that idea. ChatGPT's Instant Checkout was [reportedly scaled back in March 2026](https://contracollective.com/blog/agentic-commerce-protocol-stripe-openai-checkout-standard-2026), with checkout handed back to retailers.
+- **[Visa Trusted Agent Protocol](https://corporate.visa.com/en/sites/visa-perspectives/newsroom/visa-unveils-trusted-agent-protocol-for-ai-commerce.html):** Lets a merchant verify an agent through signed requests that carry its intent. The agent signature and transaction signal here are modeled on this approach. See [decision 010](decisions.md).
 - **[Agent Payments Protocol](https://ap2-protocol.org/) (AP2):** Announced by Google in September 2025. It uses signed mandates as proof of what a person authorized: an Intent Mandate for the boundaries an agent may act within, a Cart Mandate for a specific cart, and a Payment Mandate for the payment network. The signed consent record here is modeled on an Intent Mandate. The prototype has no Cart or Payment Mandates, and it signs on the server rather than with a key held by the customer.
 
 ## Goals
@@ -88,6 +89,13 @@ Other non-goals: TBD
 | R47 | A phone-frame prototype generated from those settings can be tapped through, shows only enabled features, and offers Run scenario and Simulate next day. | TBD |
 | R48 | An auto-generated mini spec covers the problem, enabled features, rules, user flow, and key metrics, with Copy share link (setup encoded in the URL) and Export spec (a Markdown download). | TBD |
 | R49 | The workbench shows the "Demo - no real accounts or payments" banner and is linked from the README. | TBD |
+| R50 | The merchant verifies a signature from the agent before any charge and refuses unverified agents. | TBD |
+| R51 | Each purchase carries a transaction signal (agent, verification, whether the customer was present, and consent used) and a "why this happened" trail. The trail becomes the evidence on a refund request. | TBD |
+| R52 | Home leads with what needs the customer, and navigation has at most four tabs. | TBD |
+| R53 | Before the agent shops, the customer reviews its plan and can proceed, remove items, or do it themselves. | TBD |
+| R54 | The approval card shows what the customer asked for and why the agent chose the item, and offers Buy it myself as well as Approve and Deny. | TBD |
+| R55 | New agents use trust levels (Ask me every time, Ask me above an amount, Handle routine purchases) and start at the most cautious. | TBD |
+| R56 | One button stops all agents and can be undone. | TBD |
 
 ## Key flow
 

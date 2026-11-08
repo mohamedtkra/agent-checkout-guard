@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Prototype Workbench</title>
   <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="shared/design.css">
   <link rel="stylesheet" href="workbench/styles.css">
 </head>
 <body>
@@ -54,8 +55,10 @@
     <section class="stage" aria-label="Live prototype">
       <div class="phone">
         <p class="phone-banner">Demo - no real accounts or payments</p>
+        <div id="phone-stop" class="phone-bar"></div>
         <div id="phone-screen" class="phone-screen"></div>
         <nav id="phone-tabs" class="phone-tabs" aria-label="Prototype screens"></nav>
+        <div id="phone-sheet" class="sheet-host" hidden></div>
       </div>
       <div class="controls">
         <button id="run" class="button primary" type="button">Run scenario</button>

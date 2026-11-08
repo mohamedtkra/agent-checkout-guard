@@ -1,11 +1,15 @@
+import { checkoutPayload } from './agent-directory.js';
+
 export const SHOPPING_LIST = [
-  { merchantId: 'grocer', item: 'Weekly groceries', amountCents: 4250 },
-  { merchantId: 'pharmacy', item: 'Allergy medicine', amountCents: 1825 },
-  { merchantId: 'electronics', item: 'USB charger', amountCents: 2499 },
-  { merchantId: 'grocer', item: 'Bulk pantry restock', amountCents: 7800 },
-  { merchantId: 'wellness', item: 'Blood pressure monitor', amountCents: 4500, final: { amountCents: 4200 } },
-  { merchantId: 'market', item: 'Holiday food hamper', amountCents: 45000 },
+  { merchantId: 'grocer', item: 'Weekly groceries', why: 'It is your usual weekly order.', amountCents: 4250 },
+  { merchantId: 'pharmacy', item: 'Allergy medicine', why: 'You are nearly out, based on your last order.', amountCents: 1825 },
+  { merchantId: 'electronics', item: 'USB charger', why: 'Your saved list had a replacement charger.', amountCents: 2499 },
+  { merchantId: 'grocer', item: 'Bulk pantry restock', why: 'Pantry staples are running low.', amountCents: 7800 },
+  { merchantId: 'wellness', item: 'Blood pressure monitor', why: 'It matches the model you saved.', amountCents: 4500, final: { amountCents: 4200 } },
+  { merchantId: 'market', item: 'Holiday food hamper', why: 'You asked for a gift for the holidays.', amountCents: 45000 },
 ];
+
+export const SHOPPING_ASK = 'Keep the household stocked and pick up what is on my list.';
 
 export const UNCLEARED_CHARGE = { merchantId: 'unlisted-store', item: 'Unrecognized charge', amountCents: 14999 };
 
@@ -16,6 +20,7 @@ const OVERREACH_SCENARIOS = [
   { id: 'price_raised', label: 'raise the price at checkout' },
   { id: 'wrong_item', label: 'swap the item at checkout' },
   { id: 'wrong_merchant', label: 'switch merchants at checkout' },
+  { id: 'forged_signature', label: 'check out with a forged signature' },
   { id: 'duplicate', label: 'charge a finished purchase again' },
 ];
 
@@ -26,17 +31,37 @@ export class MockAgent {
   #running = false;
   #overreachIndex = 0;
 
-  constructor(guard, { stepMs = 1800, list = SHOPPING_LIST } = {}) {
+  constructor(guard, { stepMs = 1800, list = SHOPPING_LIST, ask = SHOPPING_ASK } = {}) {
     this.guard = guard;
+    this.ask = ask;
     this.stepMs = stepMs;
     this.settleMs = stepMs * SETTLE_STEPS;
     this.list = list;
   }
 
-  run(token) {
+  // What the agent intends to buy, for the customer to review before it starts.
+  plan() {
+    const { catalog } = this.guard;
+    const items = this.list.map((step, index) => {
+      const merchant = catalog.merchantFor(step.merchantId);
+      return {
+        index,
+        item: step.item,
+        why: step.why ?? null,
+        amountCents: step.amountCents,
+        merchantName: merchant.name,
+        merchantLogo: merchant.logo,
+        image: catalog.productFor(step.item).image,
+      };
+    });
+    return { ask: this.ask, items, totalCents: items.reduce((sum, item) => sum + item.amountCents, 0) };
+  }
+
+  run(token, { items } = {}) {
     if (this.#running) return null;
     this.#running = true;
-    return this.#shop(++this.#runId, token);
+    const list = items ? this.list.filter((_, index) => items.includes(index)) : this.list;
+    return this.#shop(++this.#runId, token, list);
   }
 
   simulateOverreach(token) {
@@ -64,9 +89,9 @@ export class MockAgent {
   }
 
   // Returns the purchase in its final state, or null if this run was stopped while waiting.
-  async #buy(runId, token, { final, ...quote }) {
+  async #buy(runId, token, { final, forge, ...quote }) {
     const { guard } = this;
-    const purchase = guard.attempt({ token, ...quote });
+    const purchase = guard.attempt({ token, ask: quote.overreach ? null : this.ask, ...quote });
     if (purchase.status === 'pending') {
       guard.setAgentStatus(true, `Waiting for your decision on ${quote.item}.`);
       await guard.waitForDecision(purchase.id);
@@ -74,17 +99,19 @@ export class MockAgent {
     }
     const current = guard.getPurchase(purchase.id);
     if (current.status !== 'authorized') return current;
-    const executed = guard.checkout({ token, purchaseId: purchase.id, ...quote, ...final });
+    const details = { purchaseId: purchase.id, merchantId: quote.merchantId, item: quote.item, amountCents: quote.amountCents, ...final };
+    const signature = forge ? 'forged-signature' : guard.agentDirectory.sign(current.agentId, checkoutPayload(details));
+    const executed = guard.checkout({ token, overreach: Boolean(quote.overreach), signature, ...details });
     this.#settleLater(executed);
     return executed;
   }
 
   // The agent keeps its token for the whole run, as an agent holding a card would.
-  async #shop(runId, token) {
+  async #shop(runId, token, list) {
     const { guard } = this;
     guard.setAgentStatus(true, 'Starting the shopping list.', 'Started the shopping list.');
 
-    for (const step of this.list) {
+    for (const step of list) {
       guard.setAgentStatus(true, `Shopping for ${step.item}.`);
       await sleep(this.stepMs);
       if (runId !== this.#runId) return;
@@ -109,6 +136,8 @@ export class MockAgent {
         return { ...quote, final: { amountCents: 9900 } };
       case 'wrong_item':
         return { ...quote, final: { item: 'Gift cards' } };
+      case 'forged_signature':
+        return { ...quote, forge: true };
       case 'wrong_merchant':
         return { ...quote, final: { merchantId: this.guard.catalog.merchants.find((m) => m.id !== merchantId).id } };
       default:

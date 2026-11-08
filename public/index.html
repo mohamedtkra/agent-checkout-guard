@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Agent Checkout Guard</title>
+  <link rel="stylesheet" href="/shared/design.css">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -11,108 +12,158 @@
 
   <div id="signin-view" hidden>
     <main>
-      <h1 class="signin-title">Agent Checkout Guard</h1>
-      <p class="lead">Sign in with a demo account. You will never be asked for a real password or card number.</p>
+      <div class="brand-mark" aria-hidden="true">G</div>
+      <h1 class="signin-title">Welcome back</h1>
+      <p class="lead">Sign in to Agent Checkout Guard with a demo account. You will never be asked for a real password or card number.</p>
       <p id="signin-notice" class="notice" role="status" hidden></p>
       <form id="email-form">
         <label class="field" for="email">Demo email
           <span class="hint">Use a made-up address. Nothing is sent to it.</span>
           <input id="email" class="text-input" type="email" value="demo@example.com" autocomplete="off" required>
         </label>
-        <button class="button primary wide" type="submit">Get a demo code</button>
+        <button class="button primary wide" type="submit">Continue</button>
       </form>
       <form id="code-form" hidden>
-        <p class="code-display">Your demo code is <strong id="signin-code"></strong></p>
-        <label class="field" for="signin-input">Enter the 6-digit code
-          <input id="signin-input" class="text-input" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="off" required>
+        <div id="signin-bubble"></div>
+        <label class="field" for="signin-input">Enter your 6-digit code
+          <input id="signin-input" class="otp" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="off" required>
         </label>
         <button class="button primary wide" type="submit">Sign in</button>
-        <button id="change-email" class="link" type="button">Use a different email</button>
+        <button id="change-email" class="link center-link" type="button">Use a different email</button>
       </form>
     </main>
   </div>
 
   <div id="app-view" hidden>
-    <header class="top">
-      <div class="top-row">
-        <div>
-          <h1>Agent Checkout Guard</h1>
-          <p class="access"><span id="access-dot" class="dot"></span><span id="access-text">Connecting…</span></p>
-        </div>
-        <button id="signout-button" class="button" type="button">Sign out</button>
-      </div>
-      <div id="header-meter">
-        <div class="meter" aria-hidden="true"><span id="meter-spent" class="meter-spent"></span><span id="meter-held" class="meter-held"></span></div>
-        <p id="meter-text" class="meter-text"></p>
-      </div>
+    <header class="appbar">
+      <h1 id="appbar-title">Home</h1>
+      <button id="stop-all" class="stop-pill" type="button">Stop all agents</button>
     </header>
 
-    <div id="alert" class="alert" role="alert" hidden></div>
+    <div id="alert" class="alert page-note" role="alert" hidden></div>
     <div id="reminders" class="reminders" role="status" hidden></div>
 
     <main>
-      <section id="tab-agents" class="screen" aria-labelledby="agents-title">
-        <h2>Agent credit</h2>
-        <div class="card">
-          <div class="meter large" aria-hidden="true"><span id="home-meter-spent" class="meter-spent"></span><span id="home-meter-held" class="meter-held"></span></div>
-          <dl id="home-stats" class="stats"></dl>
+      <section id="tab-home" class="screen" aria-labelledby="appbar-title">
+        <div id="home-hero"></div>
+        <div id="agent-live"></div>
+
+        <div id="connect-first" class="card first-run" hidden>
+          <h2>Connect your first agent</h2>
+          <p class="muted">Choose an assistant, set how much you trust it, and stay in control of every purchase.</p>
+          <button id="connect-first-button" class="button primary wide" type="button">Connect an agent</button>
         </div>
-        <h3>Open holds</h3>
-        <ul id="holds" class="cards"></ul>
-        <p class="legend" aria-hidden="true"><span class="swatch spent"></span>Spent<span class="swatch held"></span>On hold</p>
-        <h3>Spending by agent</h3>
-        <ul id="spending-agents" class="cards"></ul>
-        <h3>Spending by category</h3>
-        <ul id="spending-categories" class="cards"></ul>
-        <h2 id="agents-title" class="section-title">Connected agents</h2>
-        <p class="lead">Each agent gets its own test card token and can only act within the permissions you sign.</p>
+
+        <div id="needs-you-section">
+          <div class="section-head"><h2>Needs you</h2></div>
+          <div id="approvals"></div>
+        </div>
+
+        <div id="send-section">
+          <div class="section-head"><h2>Send your agent</h2></div>
+          <div id="agent-chips" class="chips"></div>
+          <p id="agent-status" class="muted small status-line" role="status"></p>
+          <button id="run-agent" class="button primary wide" type="button">Review the plan</button>
+        </div>
+
+        <div id="recent-section">
+          <div class="section-head"><h2>Recent activity</h2><button id="see-all" class="link" type="button">See all</button></div>
+          <div id="recent"></div>
+        </div>
+
+        <details class="more">
+          <summary>Holds and spending</summary>
+          <h3>Open holds</h3>
+          <ul id="holds" class="cards"></ul>
+          <p class="legend" aria-hidden="true"><span class="swatch spent"></span>Spent<span class="swatch held"></span>On hold</p>
+          <h3>Spending by agent</h3>
+          <ul id="spending-agents" class="cards"></ul>
+          <h3>Spending by category</h3>
+          <ul id="spending-categories" class="cards"></ul>
+        </details>
+
+        <details class="more">
+          <summary>Demo tools</summary>
+          <p class="muted small spaced-text">Each overreach tap tries a different out-of-bounds purchase.</p>
+          <button id="simulate-overreach" class="button wide spaced" type="button">Simulate agent overreach</button>
+          <button id="simulate-uncleared" class="button wide spaced" type="button">Simulate charge that slips past the guard</button>
+          <p id="sim-day" class="muted small spaced-text"></p>
+          <button id="simulate-next-day" class="button wide spaced" type="button">Simulate next day</button>
+          <button id="reset" class="button quiet wide" type="button">Reset demo</button>
+        </details>
+      </section>
+
+      <section id="tab-plan" class="screen" aria-labelledby="plan-title" hidden>
+        <button id="plan-back" class="back" type="button">‹ Back</button>
+        <h2 id="plan-title">Review the plan</h2>
+        <p id="plan-ask" class="lead"></p>
+        <div id="plan-items"></div>
+        <div class="sticky-actions">
+          <p id="plan-total" class="plan-total"></p>
+          <div class="actions">
+            <button id="plan-myself" class="button" type="button">Do it myself</button>
+            <button id="plan-proceed" class="button primary" type="button">Proceed</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-agents" class="screen" aria-labelledby="appbar-title" hidden>
+        <p class="lead">Each agent has its own test card and can only act within the permissions you sign.</p>
         <ul id="connections" class="cards"></ul>
-        <h3>Connect an agent</h3>
-        <p class="muted">These agents are simulated for this demo. It is not connected to or affiliated with OpenAI or Google.</p>
+        <div class="section-head"><h2>Connect an agent</h2></div>
+        <p class="muted small">These agents are simulated for this demo. It is not connected to or affiliated with OpenAI or Google.</p>
         <ul id="available-agents" class="cards spaced-list"></ul>
       </section>
 
       <section id="tab-connect" class="screen" aria-labelledby="connect-title" hidden>
         <button id="connect-back" class="back" type="button">‹ Cancel</button>
-        <h2 id="connect-title">Connect an agent</h2>
-        <div id="connect-agent" class="merchant-head connect-agent"></div>
+        <div id="connect-header">
+          <h2 id="connect-title">Connect an agent</h2>
+          <div id="connect-agent" class="merchant-head connect-agent"></div>
+          <div id="connect-steps"></div>
+        </div>
 
         <form id="stepup-form">
           <p class="lead">Confirm it is you before changing what an agent can do.</p>
-          <p class="code-display">Your step-up code is <strong id="stepup-code"></strong></p>
-          <label class="field" for="stepup-input">Enter the 6-digit code
-            <input id="stepup-input" class="text-input" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="off" required>
+          <div id="stepup-bubble"></div>
+          <label class="field" for="stepup-input">Enter your 6-digit code
+            <input id="stepup-input" class="otp" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="off" required>
           </label>
           <button class="button primary wide" type="submit">Confirm</button>
         </form>
 
         <form id="limits-form" hidden>
-          <p class="lead">Choose this agent's limits. They can't go beyond your Rules.</p>
-          <label class="field" for="limit-budget">Budget
-            <span class="money-input"><span>$</span><input id="limit-budget" type="number" inputmode="decimal" min="0" step="0.01" required></span>
-          </label>
-          <label class="field" for="limit-approval">Ask me above
+          <fieldset class="field">
+            <legend>How much do you trust this agent?</legend>
+            <div id="trust-options"></div>
+          </fieldset>
+          <label class="field" id="limit-approval-field" for="limit-approval">Ask me above
             <span class="money-input"><span>$</span><input id="limit-approval" type="number" inputmode="decimal" min="0" step="0.01" required></span>
+          </label>
+          <label class="field" for="limit-budget">Budget
+            <span class="hint">This agent's limits can't go beyond your Rules.</span>
+            <span class="money-input"><span>$</span><input id="limit-budget" type="number" inputmode="decimal" min="0" step="0.01" required></span>
           </label>
           <label class="field" for="limit-expiry">Connection expires on
             <input id="limit-expiry" class="text-input" type="date" required>
           </label>
-          <button class="button primary wide" type="submit">Review consent</button>
+          <button class="button primary wide" type="submit">Continue</button>
         </form>
 
         <div id="consent-review" hidden>
           <p id="consent-statement" class="lead"></p>
           <div id="consent-details" class="card"></div>
-          <p class="muted spaced-text">This agent receives its own test card token, valid only within this consent. A signed record of your consent is stored.</p>
+          <p class="muted small spaced-text">This agent receives its own test card token, valid only within this consent. A signed record of your consent is stored.</p>
           <div class="actions">
             <button id="consent-cancel" class="button" type="button">Cancel</button>
             <button id="consent-allow" class="button primary" type="button">Allow</button>
           </div>
         </div>
+
+        <div id="connect-done" hidden></div>
       </section>
 
-      <section id="tab-rules" class="screen" aria-labelledby="nav-rules" hidden>
-        <h2>Your rules</h2>
+      <section id="tab-rules" class="screen" aria-labelledby="appbar-title" hidden>
         <p class="lead">No agent can pay outside these limits, whatever its own permissions say.</p>
         <div id="credit-summary" class="card credit-summary"></div>
         <form id="rules-form">
@@ -131,43 +182,31 @@
           </label>
           <button id="save-rules" class="button primary wide" type="submit">Save rules</button>
         </form>
+        <p id="account-email" class="muted small account-line"></p>
+        <button id="signout-button" class="button quiet wide" type="button">Sign out</button>
       </section>
 
-      <section id="tab-agent" class="screen" aria-labelledby="nav-agent" hidden>
-        <h2>Shopping agent</h2>
-        <p id="agent-status" class="lead" role="status"></p>
-        <label class="field" for="shop-agent">Agent
-          <select id="shop-agent"></select>
-        </label>
-        <button id="run-agent" class="button primary wide" type="button">Send agent shopping</button>
-        <h3>Safety tests</h3>
-        <p class="muted">Each tap tries a different out-of-bounds purchase.</p>
-        <button id="simulate-overreach" class="button wide spaced" type="button">Simulate agent overreach</button>
-        <button id="simulate-uncleared" class="button wide spaced" type="button">Simulate charge that slips past the guard</button>
-        <h3>Approval timing</h3>
-        <p id="sim-day" class="muted"></p>
-        <button id="simulate-next-day" class="button wide spaced" type="button">Simulate next day</button>
-        <h3>Purchases</h3>
-        <ul id="purchases" class="cards"></ul>
-        <button id="reset" class="button quiet wide" type="button">Reset demo</button>
+      <section id="tab-activity" class="screen" aria-labelledby="appbar-title" hidden>
+        <div class="segments" role="group" aria-label="Activity views">
+          <button type="button" data-segment="purchases" aria-pressed="true">Purchases</button>
+          <button type="button" data-segment="log" aria-pressed="false">Log</button>
+          <button type="button" data-segment="refunds" aria-pressed="false">Refunds</button>
+        </div>
+        <div id="segment-purchases"><div id="purchases"></div></div>
+        <div id="segment-log" hidden>
+          <p class="muted small status-line"><span id="live-state">Connecting…</span> Newest first.</p>
+          <ol id="log" class="log"></ol>
+        </div>
+        <div id="segment-refunds" hidden>
+          <p class="muted small status-line">Mock processing. No real money moves.</p>
+          <ul id="refunds" class="cards"></ul>
+        </div>
       </section>
 
       <section id="tab-purchase" class="screen" aria-labelledby="purchase-title" hidden>
         <button id="purchase-back" class="back" type="button">‹ Back</button>
-        <h2 id="purchase-title">Purchase details</h2>
+        <h2 id="purchase-title" class="visually-hidden">Purchase details</h2>
         <div id="purchase-detail"></div>
-      </section>
-
-      <section id="tab-approvals" class="screen" aria-labelledby="nav-approvals" hidden>
-        <h2>Approve or deny</h2>
-        <p class="lead">The agent waits here until you decide.</p>
-        <ul id="approvals" class="cards"></ul>
-      </section>
-
-      <section id="tab-activity" class="screen" aria-labelledby="nav-activity" hidden>
-        <h2>Live activity</h2>
-        <p class="lead"><span id="live-state">Connecting…</span> Newest first.</p>
-        <ol id="log" class="log"></ol>
       </section>
 
       <section id="tab-report" class="screen" aria-labelledby="report-title" hidden>
@@ -186,12 +225,6 @@
         </form>
       </section>
 
-      <section id="tab-refunds" class="screen" aria-labelledby="nav-refunds" hidden>
-        <h2>Refunds</h2>
-        <p class="lead">Mock processing. No real money moves.</p>
-        <ul id="refunds" class="cards"></ul>
-      </section>
-
       <section id="tab-refund" class="screen" aria-labelledby="refund-title" hidden>
         <button id="refund-back" class="back" type="button">‹ All refunds</button>
         <h2 id="refund-title">Refund request</h2>
@@ -200,13 +233,13 @@
     </main>
 
     <nav class="tabs" aria-label="Screens">
-      <button id="nav-agents" type="button" data-tab="agents" aria-current="page">Agents</button>
-      <button id="nav-rules" type="button" data-tab="rules">Rules</button>
-      <button id="nav-agent" type="button" data-tab="agent">Shop</button>
-      <button id="nav-approvals" type="button" data-tab="approvals">Approve<span id="approval-badge" class="badge" hidden></span></button>
+      <button id="nav-home" type="button" data-tab="home" aria-current="page">Home<span id="approval-badge" class="badge" hidden></span></button>
+      <button id="nav-agents" type="button" data-tab="agents">Agents</button>
       <button id="nav-activity" type="button" data-tab="activity">Activity</button>
-      <button id="nav-refunds" type="button" data-tab="refunds">Refunds</button>
+      <button id="nav-rules" type="button" data-tab="rules">Rules</button>
     </nav>
+
+    <div id="sheet" class="sheet-host" hidden></div>
   </div>
 
   <div id="toast" class="toast" role="status" hidden></div>

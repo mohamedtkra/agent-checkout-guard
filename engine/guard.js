@@ -1,10 +1,11 @@
+import { checkoutPayload, createDemoAgentDirectory } from './agent-directory.js';
 import { DEFAULT_CATALOG } from './catalog.js';
 import { GuardError } from './errors.js';
 
 export { GuardError };
 
 // The guard's capabilities are composable blocks. The full app runs with every block on.
-export const FEATURE_IDS = ['stepUpConsent', 'approvals', 'creditHolds', 'splitByAgent', 'refunds', 'overreach'];
+export const FEATURE_IDS = ['stepUpConsent', 'approvals', 'creditHolds', 'splitByAgent', 'refunds', 'overreach', 'agentVerification'];
 
 export function normalizeFeatures(features = {}) {
   const enabled = Object.fromEntries(FEATURE_IDS.map((id) => [id, features[id] !== false]));
@@ -49,7 +50,16 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const INTENT_STATUSES = ['pending', 'authorized'];
 const COMMITTED_STATUSES = ['completed', 'held'];
 const OPEN_STATUSES = [...INTENT_STATUSES, 'held'];
-const PERSISTED_FIELDS = ['rules', 'agentShares', 'credit', 'purchases', 'refunds', 'alerts', 'paused'];
+const PERSISTED_FIELDS = ['rules', 'agentShares', 'credit', 'purchases', 'refunds', 'alerts', 'paused', 'pauseReason'];
+const FLAGGED_PAUSE = 'The agent is paused after a flagged charge.';
+const CUSTOMER_STOP = 'You stopped all agents.';
+
+// How much a new agent is trusted, as the approval amount each level produces.
+const TRUST_APPROVALS = {
+  every_time: () => 0,
+  above: (approvalCents) => approvalCents,
+  routine: (_, rules) => rules.approvalCents,
+};
 
 const isCents = (value) => Number.isSafeInteger(value) && value >= 0;
 const money = (cents) => `$${(cents / 100).toFixed(2)}`;
@@ -83,8 +93,9 @@ export class Guard {
   #persist;
   #appendAudit;
 
-  constructor({ connections, saved = null, log = [], persist = () => {}, appendAudit = () => 0, catalog = DEFAULT_CATALOG, features }) {
+  constructor({ connections, saved = null, log = [], persist = () => {}, appendAudit = () => 0, catalog = DEFAULT_CATALOG, features, agentDirectory = createDemoAgentDirectory() }) {
     this.connections = connections;
+    this.agentDirectory = agentDirectory;
     this.catalog = catalog;
     this.features = normalizeFeatures(features);
     this.#persist = persist;
@@ -125,6 +136,7 @@ export class Guard {
     this.refunds = [];
     this.alerts = [];
     this.paused = false;
+    this.pauseReason = null;
     this.agentStatus = { running: false, message: 'Ready to shop.' };
   }
 
@@ -175,7 +187,7 @@ export class Guard {
       .reduce((total, p) => total + p.amountCents, 0);
   }
 
-  #open({ merchantId, item, amountCents, overreach = false }, connection = null) {
+  #open({ merchantId, item, amountCents, overreach = false, why = null, ask = null }, connection = null) {
     const merchant = this.catalog.merchantFor(merchantId);
     const product = this.catalog.productFor(item);
     const purchase = {
@@ -207,6 +219,11 @@ export class Guard {
       customerApproved: false,
       flagged: false,
       overreach,
+      why,
+      ask,
+      consentVersion: null,
+      signal: null,
+      trail: [],
     };
     this.purchases.push(purchase);
     return purchase;
@@ -224,8 +241,13 @@ export class Guard {
     this.#waiters.delete(purchase.id);
   }
 
+  #addTrail(purchase, label, detail) {
+    purchase.trail.push({ label, detail, at: this.#nowIso() });
+  }
+
   #block(purchase, code, reason) {
     purchase.code = code;
+    this.#addTrail(purchase, reason.startsWith('Declined') ? 'Declined' : 'Blocked', reason.replace(/^Declined at checkout: /, ''));
     const declined = reason.match(/^Declined at checkout: (.*)$/);
     this.#record('guard', declined ? `Declined ${purchase.item} at checkout: ${declined[1]}` : `Blocked ${purchase.item}: ${reason}`, purchase);
     this.#settle(purchase, 'blocked', reason);
@@ -240,6 +262,7 @@ export class Guard {
     purchase.reason = reason;
     purchase.holdOpen = true;
     this.#setExpiry(purchase);
+    this.#addTrail(purchase, 'Hold placed', `${money(purchase.amountCents)} reserved at checkout.`);
     this.#record('guard', `Placed a ${money(purchase.amountCents)} hold for ${purchase.item}.`, purchase);
   }
 
@@ -251,7 +274,7 @@ export class Guard {
   #authorize(token) {
     const auth = this.connections.authorize(token, this.#nowMs());
     if (auth.problem) return auth;
-    if (this.paused) return { ...auth, problem: { code: 'paused', reason: 'The agent is paused after a flagged charge.' } };
+    if (this.paused) return { ...auth, problem: { code: 'paused', reason: this.pauseReason ?? FLAGGED_PAUSE } };
     return auth;
   }
 
@@ -332,6 +355,7 @@ export class Guard {
 
   #charge(purchase, reason) {
     this.#settle(purchase, 'completed', reason);
+    this.#addTrail(purchase, 'Charged', `${money(purchase.amountCents)} at ${purchase.merchantName}.`);
     this.#record('payment', `Charged ${money(purchase.amountCents)} to ${purchase.agentName}'s test token at ${purchase.merchantName}. No real money moved.`, purchase);
     this.#auditCharge(purchase);
   }
@@ -362,6 +386,7 @@ export class Guard {
   #pause() {
     if (this.paused) return;
     this.paused = true;
+    this.pauseReason = FLAGGED_PAUSE;
     this.agentStatus = { running: this.agentStatus.running, message: 'Paused after a flagged charge.' };
     this.#record('guard', 'Paused all agents automatically after a flagged charge.', null, true);
     this.#cancelOpen('The agent was paused after a flagged charge.');
@@ -478,6 +503,7 @@ export class Guard {
       now: this.#nowIso(),
       simulatedDays: this.#clockOffsetMs / DAY_MS,
       paused: this.paused,
+      pauseReason: this.pauseReason,
       alerts: this.alerts,
       spentCents,
       heldCents,
@@ -509,7 +535,13 @@ export class Guard {
     if (Number.isNaN(expiresAtMs) || expiresAtMs <= this.#nowMs() || expiresAtMs > this.#nowMs() + MAX_CONNECTION_DAYS * DAY_MS) {
       throw new GuardError(`Connection expiry must be within the next ${MAX_CONNECTION_DAYS} days.`);
     }
-    return { budgetCents, approvalCents, connectionExpiresAt: new Date(expiresAtMs).toISOString() };
+    const trustLevel = Object.hasOwn(TRUST_APPROVALS, input.trustLevel) ? input.trustLevel : 'above';
+    return {
+      budgetCents,
+      approvalCents: TRUST_APPROVALS[trustLevel](approvalCents, this.rules),
+      trustLevel,
+      connectionExpiresAt: new Date(expiresAtMs).toISOString(),
+    };
   }
 
   nowMs() {
@@ -556,9 +588,21 @@ export class Guard {
     this.#notify();
   }
 
+  // The customer's panic button. Reversible, so it pauses agents rather than disconnecting them.
+  stopAllAgents() {
+    if (this.paused) return;
+    this.paused = true;
+    this.pauseReason = CUSTOMER_STOP;
+    this.agentStatus = { running: this.agentStatus.running, message: 'Stopped. You stopped all agents.' };
+    this.#record('customer', 'Stopped all agents.', null);
+    this.#cancelOpen('You stopped all agents.');
+    this.#notify();
+  }
+
   resumeAgent() {
     if (!this.paused) return;
     this.paused = false;
+    this.pauseReason = null;
     this.alerts = [];
     this.agentStatus = { running: this.agentStatus.running, message: 'Resumed. Ready to shop.' };
     this.#record('customer', 'Reviewed the flagged charge and resumed agents.');
@@ -578,14 +622,17 @@ export class Guard {
   }
 
   // First gate: records the intent and decides whether it needs approval. It reserves nothing.
-  attempt({ token, merchantId, item, amountCents, overreach = false }) {
+  attempt({ token, merchantId, item, amountCents, overreach = false, why = null, ask = null }) {
     const auth = this.#authorize(token);
-    const purchase = this.#open({ merchantId, item, amountCents, overreach }, auth.connection);
+    const purchase = this.#open({ merchantId, item, amountCents, overreach, why, ask }, auth.connection);
     this.#record('agent', `${purchase.agentName} tried to buy ${item} for ${money(amountCents)} at ${purchase.merchantName}.`, purchase);
 
     if (auth.problem) {
       this.#block(purchase, auth.problem.code, auth.problem.reason);
     } else {
+      purchase.consentVersion = auth.consent?.version ?? 1;
+      this.#addTrail(purchase, 'Your rules', `Agent limit ${shortMoney(this.rules.budgetCents)}, approval above ${shortMoney(Math.min(this.rules.approvalCents, auth.limits.approvalCents))}.`);
+      this.#addTrail(purchase, 'Your consent', `${purchase.agentName}, consent version ${purchase.consentVersion}.`);
       const { problem, needsApproval, reason } = this.#assess(amountCents, auth.limits);
       if (problem) {
         this.#block(purchase, problem.code, problem.reason);
@@ -599,6 +646,7 @@ export class Guard {
         purchase.cleared = true;
         purchase.status = 'authorized';
         purchase.reason = reason;
+        this.#addTrail(purchase, 'No approval needed', reason);
         this.#setExpiry(purchase);
         this.#record('guard', `Cleared ${item}: ${reason}`, purchase);
       }
@@ -610,7 +658,7 @@ export class Guard {
   // Final gate: executes a cleared purchase and places its hold.
   // Keep this method synchronous: checking the limits and placing the hold must be one step,
   // so that simultaneous purchases are handled one after another and each sees the last one's hold.
-  checkout({ token, purchaseId, merchantId, item, amountCents, overreach = false }) {
+  checkout({ token, purchaseId, merchantId, item, amountCents, overreach = false, signature }) {
     const final = { merchantId, item, amountCents, overreach };
     const purchase = this.purchases.find((p) => p.id === purchaseId);
     const auth = this.#authorize(token);
@@ -622,6 +670,9 @@ export class Guard {
       if (!problem && auth.connection.id !== purchase.connectionId) {
         problem = { code: 'wrong_token', reason: 'This purchase was cleared for a different agent.' };
       }
+      const verified = !this.features.agentVerification
+        || this.agentDirectory.verify(purchase.agentId, checkoutPayload({ purchaseId, merchantId, item, amountCents }), signature);
+      if (!problem && !verified) problem = { code: 'unverified_agent', reason: 'The merchant could not verify this agent.' };
       problem ??= this.#mismatchProblem(purchase, final) ?? this.#executionProblem(purchase, final, auth.limits);
       if (problem) {
         this.#block(purchase, problem.code, problem.reason);
@@ -631,6 +682,16 @@ export class Guard {
           reason = `${reason} Final price was lower than the ${money(purchase.amountCents)} quoted.`;
           this.#applyLowerPrice(purchase, amountCents);
         }
+        if (this.features.agentVerification) {
+          this.#addTrail(purchase, 'Agent verified', `${purchase.merchantName} confirmed the request came from ${purchase.agentName}.`);
+          this.#record('guard', `${purchase.merchantName} verified ${purchase.agentName}'s signature.`, purchase);
+        }
+        purchase.signal = {
+          agent: purchase.agentName,
+          agentVerified: this.features.agentVerification,
+          customerPresent: purchase.customerApproved,
+          consentVersion: purchase.consentVersion,
+        };
         if (this.features.creditHolds) this.#placeHold(purchase, reason);
         else this.#charge(purchase, reason);
       }
@@ -686,11 +747,26 @@ export class Guard {
       if (this.connections.limits(purchase.connectionId, this.#nowMs())) {
         purchase.cleared = true;
         this.#setExpiry(purchase);
+        this.#addTrail(purchase, 'You approved', `Approved ${money(purchase.amountCents)}.`);
         this.#settle(purchase, 'authorized', 'You approved this purchase.');
       } else {
         this.#block(purchase, 'no_access', 'The agent does not have access.');
       }
     }
+    this.#notify();
+    return { ...purchase };
+  }
+
+  // The customer takes over: the agent stops pursuing this purchase.
+  takeOver(id) {
+    this.checkApprovals();
+    const purchase = this.purchases.find((p) => p.id === id);
+    if (!purchase) throw new GuardError('Purchase not found.', 404);
+    if (purchase.status !== 'pending') throw new GuardError('This purchase has already been decided.', 409);
+    purchase.code = 'handed_off';
+    this.#addTrail(purchase, 'You took over', 'You chose to buy this yourself.');
+    this.#settle(purchase, 'denied', 'You chose to buy this yourself.');
+    this.#record('customer', `Chose to buy ${purchase.item} themselves instead of the agent.`, purchase);
     this.#notify();
     return { ...purchase };
   }
@@ -720,6 +796,7 @@ export class Guard {
       reason,
       reasonLabel: REFUND_REASONS[reason],
       note: note.trim(),
+      evidence: purchase.trail.map((step) => ({ ...step })),
       outcome: null,
       stageIndex: 0,
       createdAt: now.toISOString(),

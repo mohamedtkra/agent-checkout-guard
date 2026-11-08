@@ -314,13 +314,13 @@ test('after a restart, intents are canceled and executed purchases settle', () =
   const store = createStore();
   const user = createUser(store.db);
   const { token } = linkAgent(store, user, 'agent-a');
-  const { guard } = new Wallets({ ...store, stepMs: 0 }).get(user.id);
+  const { guard } = new Wallets({ ...store, stepMs: 0, features: { agentVerification: false } }).get(user.id);
   guard.setRules({ ...RULES, budgetCents: 40000, agentShares: { 'agent-a': 30000 } });
   const held = guard.attempt({ token, merchantId: 'grocer', item: 'Executed', amountCents: 1000 });
   guard.checkout({ token, purchaseId: held.id, merchantId: 'grocer', item: 'Executed', amountCents: 1000 });
   const open = guard.attempt({ token, merchantId: 'grocer', item: 'Open', amountCents: 500 });
 
-  const restored = new Wallets({ ...store, stepMs: 0 }).get(user.id).guard;
+  const restored = new Wallets({ ...store, stepMs: 0, features: { agentVerification: false } }).get(user.id).guard;
   assert.equal(restored.getPurchase(open.id).status, 'canceled');
   assert.equal(restored.getPurchase(held.id).status, 'completed');
   const { allocation, agentShares, credit } = restored.snapshot();
@@ -332,7 +332,7 @@ test('after a restart, intents are canceled and executed purchases settle', () =
 test('state saved by an older version still loads', () => {
   const store = createStore();
   const user = createUser(store.db);
-  const wallets = new Wallets({ ...store, stepMs: 0 });
+  const wallets = new Wallets({ ...store, stepMs: 0, features: { agentVerification: false } });
   wallets.get(user.id).guard.setRules(RULES);
   const row = store.db.prepare('SELECT state_json FROM wallet_state WHERE user_id = ?').get(user.id);
   const { credit, agentShares, ...older } = JSON.parse(row.state_json);
@@ -340,7 +340,7 @@ test('state saved by an older version still loads', () => {
   older.rules.allowedMerchantIds = ['grocer'];
   older.merchantAgents = { grocer: [] };
   store.db.prepare('UPDATE wallet_state SET state_json = ? WHERE user_id = ?').run(JSON.stringify(older), user.id);
-  const restored = new Wallets({ ...store, stepMs: 0 }).get(user.id).guard;
+  const restored = new Wallets({ ...store, stepMs: 0, features: { agentVerification: false } }).get(user.id).guard;
   assert.equal(restored.snapshot().credit.availableCents, 380000);
   assert.deepEqual(restored.agentShares, {});
 });

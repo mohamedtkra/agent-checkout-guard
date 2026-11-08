@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { MockAgent } from '../engine/agent.js';
+import { checkoutPayload } from '../engine/agent-directory.js';
 import { createCatalog } from '../engine/catalog.js';
 import { FEATURE_IDS, Guard, normalizeFeatures } from '../engine/guard.js';
 import { MemoryConnections } from '../engine/memory-connections.js';
@@ -33,7 +34,9 @@ let counter = 0;
 function buy(guard, token, amountCents) {
   const details = { token, merchantId: 'shop', item: `Item ${counter += 1}`, amountCents };
   const intent = guard.attempt(details);
-  return intent.status === 'authorized' ? guard.checkout({ ...details, purchaseId: intent.id }) : intent;
+  if (intent.status !== 'authorized') return intent;
+  const signature = guard.agentDirectory.sign(intent.agentId, checkoutPayload({ ...details, purchaseId: intent.id }));
+  return guard.checkout({ ...details, purchaseId: intent.id, signature });
 }
 
 test('the engine has no Node-only imports, so it can run in a browser', () => {
@@ -144,7 +147,7 @@ test('with overreach on, the same charge is flagged and agents pause', () => {
 });
 
 test('a higher final price is blocked whichever blocks are on', () => {
-  const { guard, link } = setup({ overreach: false, approvals: false, creditHolds: false });
+  const { guard, link } = setup({ overreach: false, approvals: false, creditHolds: false, agentVerification: false });
   const { token } = link();
   const details = { token, merchantId: 'shop', item: 'Widget', amountCents: 100 };
   const intent = guard.attempt(details);

@@ -203,7 +203,7 @@ test('data survives a restart, and the signing key is private', () => {
   const open = () => {
     const db = openDatabase(dbPath);
     const connections = new Connections(db, loadSigner(keyPath));
-    return { db, connections, wallets: new Wallets({ db, connections, stepMs: 0 }) };
+    return { db, connections, wallets: new Wallets({ db, connections, stepMs: 0, features: { agentVerification: false } }) };
   };
 
   const first = open();
@@ -234,7 +234,7 @@ test('a reset keeps the audit log and connections', () => {
   const store = createStore();
   const user = createUser(store.db);
   const { token } = linkAgent(store, user, 'agent-a');
-  const { guard } = new Wallets({ ...store, stepMs: 0 }).get(user.id);
+  const { guard } = new Wallets({ ...store, stepMs: 0, features: { agentVerification: false } }).get(user.id);
   guard.attempt({ token, merchantId: 'grocer', item: 'Item', amountCents: 100 });
   const before = store.db.prepare('SELECT COUNT(*) AS n FROM audit_log').get().n;
   guard.reset();

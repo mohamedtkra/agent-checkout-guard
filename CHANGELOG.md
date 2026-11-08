@@ -42,6 +42,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Decision 008, and a metric for approved purchases declined at checkout.
 - Prototype Workbench: a static page with scenario templates, feature blocks, a phone-frame live prototype, an auto-generated mini spec, share links, and Markdown export, published on GitHub Pages.
 - Decision 009, and workbench requirements in the PRD.
+- Verified agents: the merchant checks a signature from the agent before any charge, modeled on Visa's Trusted Agent Protocol.
+- A transaction signal and a "why this happened" trail on each purchase, used as evidence on refund requests.
+- Plan preview before the agent shops, with Proceed, removing items, and Do it myself.
+- Trust levels for each agent, starting at Ask me every time.
+- Stop all agents, which can be undone.
+- Buy it myself, and what you asked for and why the agent chose it, on the approval card.
+- Decision 010, and related requirements and metrics.
 
 ### Changed
 
@@ -58,6 +65,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Holds are now placed only when a purchase is executed. Intents, including those waiting for approval, reserve nothing, and limits are checked at checkout.
 - The agent allocation can now be split by company.
 - The guard logic moved to a browser-safe shared engine in `engine/`, used by both the app and the workbench.
+- Redesigned the app and the workbench phone to look and flow like a mobile banking app: a balance card, transaction lists grouped by day, approvals in a bottom sheet, full receipts, tap-to-fill code entry, a step-by-step connection flow with a confirmation screen, and a first-run prompt to connect an agent.
+- Home now leads with what needs you, and navigation is down to Home, Agents, Activity, and Rules. Purchases, the log, and refunds now live together in Activity, and approvals live on Home.
 
 ### Removed
 

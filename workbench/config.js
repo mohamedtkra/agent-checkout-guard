@@ -8,6 +8,7 @@ export const FEATURE_BLOCKS = [
   { id: 'splitByAgent', label: 'Split by agent', hint: 'Gives each agent its own share of the allocation.', requires: 'creditHolds' },
   { id: 'refunds', label: 'Report and refund tracking', hint: 'Report a problem and follow a refund timeline.' },
   { id: 'overreach', label: 'Overreach detection and auto-pause', hint: 'Test out-of-bounds purchases and pause agents on a flagged charge.' },
+  { id: 'agentVerification', label: 'Verified agent at checkout', hint: 'The merchant checks a signature from the agent before charging.' },
 ];
 
 const MAX_DOLLARS = 1_000_000;

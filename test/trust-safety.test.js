@@ -223,12 +223,12 @@ test('every overreach scenario is stopped and nothing is charged', async () => {
   const guard = activeGuard();
   chargedPurchase(guard);
   const agent = new MockAgent(guard, { stepMs: 0 });
-  for (let press = 0; press < 5; press += 1) await agent.simulateOverreach(guard.agentToken());
+  for (let press = 0; press < 6; press += 1) await agent.simulateOverreach(guard.agentToken());
 
   const attempts = guard.purchases.filter((p) => p.overreach);
-  assert.equal(attempts.length, 5);
+  assert.equal(attempts.length, 6);
   assert.ok(attempts.every((p) => p.status === 'blocked'));
-  assert.deepEqual(attempts.map((p) => p.code), ['not_cleared', 'mismatch', 'mismatch', 'mismatch', 'duplicate']);
+  assert.deepEqual(attempts.map((p) => p.code), ['not_cleared', 'mismatch', 'mismatch', 'mismatch', 'unverified_agent', 'duplicate']);
   assert.equal(guard.snapshot().spentCents, 2000);
   assert.equal(guard.paused, false);
 });

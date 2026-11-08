@@ -41,7 +41,7 @@ export class MemoryConnections {
       return { problem: { code: 'no_access', reason: 'This agent\'s connection has expired.' }, connection: this.#publicConnection(row) };
     }
     row.lastActivityAt = new Date(nowMs).toISOString();
-    return { connection: this.#publicConnection(row), limits: row.permissions };
+    return { connection: this.#publicConnection(row), limits: row.permissions, consent: { id: row.id, version: 1 } };
   }
 
   limits(connectionId, nowMs) {

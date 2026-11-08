@@ -67,6 +67,7 @@ export class Connections {
       permissions: {
         currency: 'USD',
         budgetCents: permissions.budgetCents,
+        trustLevel: permissions.trustLevel ?? 'above',
         approvalCents: permissions.approvalCents,
         approvalExpiryDays: APPROVAL_EXPIRY_DAYS,
         connectionExpiresAt: permissions.connectionExpiresAt,
@@ -164,7 +165,7 @@ export class Connections {
     if (nowMs >= Date.parse(permissions.connectionExpiresAt)) {
       return { problem: { code: 'no_access', reason: 'This agent\'s connection has expired.' } };
     }
-    return { permissions };
+    return { permissions, consent: { id: consent.id, version: consent.version } };
   }
 
   #publicConnection(row) {
@@ -179,10 +180,10 @@ export class Connections {
       JOIN agent_connections c ON c.id = t.connection_id
       WHERE t.token_hash = ? AND c.user_id = ?`).get(sha256(token), userId);
     if (!row || row.status !== 'active' || row.token_revoked_at) return NO_ACCESS;
-    const { problem, permissions } = this.#checkConsent(row, nowMs);
+    const { problem, permissions, consent } = this.#checkConsent(row, nowMs);
     if (problem) return { problem, connection: this.#publicConnection(row) };
     this.db.prepare('UPDATE agent_connections SET last_activity_at = ? WHERE id = ?').run(new Date(nowMs).toISOString(), row.id);
-    return { connection: this.#publicConnection(row), limits: permissions };
+    return { connection: this.#publicConnection(row), limits: permissions, consent };
   }
 
   limits(userId, connectionId, nowMs) {

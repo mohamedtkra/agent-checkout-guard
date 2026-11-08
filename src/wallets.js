@@ -7,10 +7,12 @@ import { Guard } from '../engine/guard.js';
 export class Wallets {
   #wallets = new Map();
 
-  constructor({ db, connections, stepMs }) {
+  constructor({ db, connections, stepMs, agentDirectory, features }) {
     this.db = db;
     this.connections = connections;
     this.stepMs = stepMs;
+    this.agentDirectory = agentDirectory;
+    this.features = features;
   }
 
   get(userId) {
@@ -28,6 +30,8 @@ export class Wallets {
 
     const guard = new Guard({
       connections: this.connections.forUser(userId),
+      agentDirectory: this.agentDirectory,
+      features: this.features,
       saved,
       log,
       persist: (state) => db.prepare(`INSERT INTO wallet_state (user_id, state_json, updated_at) VALUES (?, ?, ?)
