@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Agent Checkout Guard</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <p class="test-banner">Test mode. Mock merchants and test card tokens only, no real payments.</p>
+
+  <header class="top">
+    <div class="top-row">
+      <div>
+        <h1>Agent Checkout Guard</h1>
+        <p class="access"><span id="access-dot" class="dot"></span><span id="access-text">Connecting…</span></p>
+      </div>
+      <button id="access-button" class="button" type="button" disabled>Revoke access</button>
+    </div>
+    <div class="meter" aria-hidden="true"><span id="meter-spent" class="meter-spent"></span><span id="meter-held" class="meter-held"></span></div>
+    <p id="meter-text" class="meter-text"></p>
+  </header>
+
+  <main>
+    <section id="tab-rules" class="screen" aria-labelledby="nav-rules">
+      <h2>Your rules</h2>
+      <p class="lead">The agent can only pay within these limits.</p>
+      <form id="rules-form">
+        <label class="field" for="budget">Budget
+          <span class="hint">The most the agent can spend in total.</span>
+          <span class="money-input"><span>$</span><input id="budget" type="number" inputmode="decimal" min="0" step="0.01" required></span>
+        </label>
+        <label class="field" for="approval">Ask me above
+          <span class="hint">Purchases over this amount need your approval.</span>
+          <span class="money-input"><span>$</span><input id="approval" type="number" inputmode="decimal" min="0" step="0.01" required></span>
+        </label>
+        <fieldset class="field">
+          <legend>Allowed merchants</legend>
+          <div id="merchant-options"></div>
+        </fieldset>
+        <button id="save-rules" class="button primary wide" type="submit">Save rules</button>
+      </form>
+    </section>
+
+    <section id="tab-agent" class="screen" aria-labelledby="nav-agent" hidden>
+      <h2>Shopping agent</h2>
+      <p id="agent-status" class="lead" role="status"></p>
+      <button id="run-agent" class="button primary wide" type="button">Send agent shopping</button>
+      <h3>Purchases</h3>
+      <ul id="purchases" class="cards"></ul>
+      <button id="reset" class="button quiet wide" type="button">Reset demo</button>
+    </section>
+
+    <section id="tab-approvals" class="screen" aria-labelledby="nav-approvals" hidden>
+      <h2>Approve or deny</h2>
+      <p class="lead">The agent waits here until you decide.</p>
+      <ul id="approvals" class="cards"></ul>
+    </section>
+
+    <section id="tab-activity" class="screen" aria-labelledby="nav-activity" hidden>
+      <h2>Live activity</h2>
+      <p class="lead"><span id="live-state">Connecting…</span> Newest first.</p>
+      <ol id="log" class="log"></ol>
+    </section>
+  </main>
+
+  <nav class="tabs" aria-label="Screens">
+    <button id="nav-rules" type="button" data-tab="rules" aria-current="page">Rules</button>
+    <button id="nav-agent" type="button" data-tab="agent">Agent</button>
+    <button id="nav-approvals" type="button" data-tab="approvals">Approve<span id="approval-badge" class="badge" hidden></span></button>
+    <button id="nav-activity" type="button" data-tab="activity">Activity</button>
+  </nav>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

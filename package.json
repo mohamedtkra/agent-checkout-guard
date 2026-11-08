@@ -1,0 +1,15 @@
+{
+  "name": "agent-checkout-guard",
+  "version": "0.1.0",
+  "description": "Prototype web app that limits what an AI shopping agent can buy. Mock data only.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/"
+  }
+}

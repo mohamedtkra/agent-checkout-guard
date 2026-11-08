@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Initial project structure: README, changelog, and draft docs (one-pager, PRD, decisions, metrics, retro).
 - MIT license.
+- First working prototype: rules screen, mock shopping agent with three mock merchants, approve/deny screen, live activity log, and revoke access.
 
 ### Changed
 
