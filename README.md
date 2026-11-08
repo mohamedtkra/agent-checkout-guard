@@ -45,6 +45,8 @@ npm test
 6. On **Agent**, use **Simulate agent overreach** to watch the guard block an out-of-bounds purchase. Each tap tries a different one.
 7. Use **Simulate charge that slips past the guard** to see a charge flagged in red, the agent paused, and the customer alerted.
 8. On **Activity**, use **Report a problem** on a purchase, then follow the request on **Refunds** with **Simulate next step**.
-9. Use **Reset demo** on **Agent** to start again.
+9. On a paid purchase, use **View purchase details** to see the item picture, its details, and the merchant's information.
+10. On **Agent**, change the **Agent company** or open **Merchant settings (mock)** to see merchants refuse agent companies they don't accept.
+11. Use **Reset demo** on **Agent** to start again.
 
 Data is kept in memory, so restarting the server clears it. The server only accepts connections from this computer.

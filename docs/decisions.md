@@ -21,6 +21,19 @@ A running log of significant project decisions. Add new entries at the top, and 
 
 ## Log
 
+## 006: Merchants choose agent companies, and customers can allow by category
+
+- **Date:** 2026-11-08
+- **Status:** Accepted
+
+**Context:** Merchants should have a say in which agent companies can buy from them, and customers should be able to think in merchant categories.
+
+**Decision:** Each merchant keeps a list of the agent companies it accepts. The guard blocks a purchase if the merchant does not accept the agent's company, including when the merchant withdraws acceptance after a purchase was cleared or held. Customers can allow a whole category or individual merchants.
+
+**Alternatives considered:** Showing merchant partners without enforcing them would not give merchants real control. Grouping merchants by category for display only would not let customers set a whole category at once.
+
+**Consequences:** The product now has a merchant side, which the prototype represents with one mock settings screen and no merchant accounts. Allowing a category currently selects its merchants, so a merchant added to a category later would not be allowed automatically.
+
 ## 004: Allow lower final prices
 
 - **Date:** 2026-11-08

@@ -20,6 +20,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Original invented merchant brands with SVG logos on purchase cards, the approval screen, and the activity log.
 - Product details on each purchase: original SVG illustration, name, description, price, and color and size where they apply.
 - Decisions 002 and 004, and approval expiry, branding, and product requirements in the PRD.
+- Merchant categories with a second invented merchant in each, and allow-by-category on the Rules screen.
+- Agent companies, with merchants choosing which ones they accept on a mock Merchant settings screen. Purchases are blocked if the merchant does not accept the agent's company.
+- Purchase details screen with the item picture, item details, and merchant information.
+- Decision 006, and requirements for categories, agent companies, and purchase details in the PRD.
 
 ### Changed
 

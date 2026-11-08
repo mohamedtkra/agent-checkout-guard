@@ -57,6 +57,7 @@ async function handlePost(req, res, pathname) {
   const decision = pathname.match(/^\/api\/purchases\/([\w-]+)\/decision$/);
   const report = pathname.match(/^\/api\/purchases\/([\w-]+)\/report$/);
   const refundStep = pathname.match(/^\/api\/refunds\/([\w-]+)\/advance$/);
+  const merchantAgents = pathname.match(/^\/api\/merchants\/([\w-]+)\/agents$/);
 
   if (pathname === '/api/rules') {
     guard.setRules(body);
@@ -71,6 +72,10 @@ async function handlePost(req, res, pathname) {
     guard.resumeAgent();
   } else if (pathname === '/api/simulate/uncleared-charge') {
     guard.recordUnclearedCharge(UNCLEARED_CHARGE);
+  } else if (pathname === '/api/agent-company') {
+    guard.setAgentCompany(body.id);
+  } else if (merchantAgents) {
+    guard.setMerchantAgents(merchantAgents[1], body.agentCompanyIds);
   } else if (pathname === '/api/simulate/next-day') {
     guard.advanceDay();
   } else if (decision) {

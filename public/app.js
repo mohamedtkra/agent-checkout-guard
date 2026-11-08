@@ -9,9 +9,9 @@ const STATUS_LABELS = {
   canceled: 'Canceled',
   refunded: 'Refunded',
 };
-const ACTOR_LABELS = { customer: 'You', agent: 'Agent', guard: 'Guard', payment: 'Test payment', refund: 'Refunds', reminder: 'Reminder', clock: 'Test clock' };
+const ACTOR_LABELS = { customer: 'You', agent: 'Agent', guard: 'Guard', payment: 'Test payment', refund: 'Refunds', reminder: 'Reminder', clock: 'Test clock', merchant: 'Merchant' };
 const DAY_MS = 24 * 60 * 60 * 1000;
-const PARENT_TABS = { report: 'activity', refund: 'refunds' };
+const PARENT_TABS = { report: 'activity', refund: 'refunds', purchase: 'agent', merchants: 'agent' };
 
 const money = (cents) => `$${(cents / 100).toFixed(2)}`;
 const toCents = (value) => Math.round(Number(value) * 100);
@@ -25,6 +25,8 @@ let renderedRules = '';
 let currentTab = 'rules';
 let reportPurchaseId = null;
 let openRefundId = null;
+let openPurchaseId = null;
+let purchaseReturnTab = 'agent';
 const seenPending = new Set();
 
 function el(tag, className, text) {
@@ -115,6 +117,15 @@ function reportOrView(purchaseId) {
   else openReport(purchaseId);
 }
 
+const wasCharged = (purchase) => ['completed', 'refunded'].includes(purchase.status);
+
+function openPurchase(id) {
+  openPurchaseId = id;
+  purchaseReturnTab = currentTab;
+  renderPurchaseDetail();
+  showTab('purchase');
+}
+
 function purchaseCard(purchase) {
   const card = el('li', purchase.flagged ? 'card flagged' : 'card');
   const row = el('div', 'card-row');
@@ -139,7 +150,61 @@ function purchaseCard(purchase) {
   meta.append(merchant, el('span', `tag ${purchase.flagged ? 'flag' : purchase.status}`, purchase.flagged ? 'Flagged' : STATUS_LABELS[purchase.status]));
   card.append(product, meta);
   if (purchase.reason) card.append(el('p', 'reason', purchase.reason));
+  if (wasCharged(purchase)) card.append(button('link', 'View purchase details', () => openPurchase(purchase.id)));
   return card;
+}
+
+function detailList(rows) {
+  const list = el('dl', 'details');
+  rows.filter(([, value]) => value).forEach(([label, value]) => {
+    const row = el('div', 'detail-row');
+    row.append(el('dt', '', label), el('dd', '', value));
+    list.append(row);
+  });
+  return list;
+}
+
+function renderPurchaseDetail() {
+  const purchase = state?.purchases.find((p) => p.id === openPurchaseId);
+  if (!purchase) {
+    $('#purchase-detail').replaceChildren();
+    return;
+  }
+  const item = el('div', 'card');
+  item.append(
+    image('hero-image', purchase.image, purchase.item),
+    el('h3', 'detail-name', purchase.item),
+    el('p', 'description', purchase.description),
+    detailList([
+      ['Price paid', money(purchase.amountCents)],
+      ['Quoted price', purchase.originalCents ? money(purchase.originalCents) : null],
+      ['Color', purchase.color],
+      ['Size', purchase.size],
+      ['Purchased', dayAndTime(purchase.settledAt ?? purchase.at)],
+      ['Status', purchase.flagged ? 'Flagged' : STATUS_LABELS[purchase.status]],
+      ['Agent company', purchase.agentCompanyName],
+    ]),
+  );
+
+  const seller = el('div', 'card');
+  const merchant = state.merchants.find((m) => m.id === purchase.merchantId);
+  const head = el('div', 'merchant-head');
+  const name = el('div');
+  name.append(el('strong', '', purchase.merchantName));
+  if (merchant) name.append(el('p', 'muted', merchant.category));
+  head.append(image('logo large', purchase.merchantLogo), name);
+  seller.append(head);
+  if (merchant) {
+    seller.append(
+      el('p', 'description', merchant.about),
+      detailList([['Address', merchant.location], ['Support', merchant.support], ['Returns', merchant.returns]]),
+    );
+  } else {
+    seller.append(el('p', 'description', 'No merchant information is available for this charge.'));
+  }
+
+  const report = button('button wide spaced', refundFor(purchase.id) ? 'View refund request' : 'Report a problem', () => reportOrView(purchase.id));
+  $('#purchase-detail').replaceChildren(item, el('h3', '', 'Merchant'), seller, report);
 }
 
 function approvalCard(purchase) {
@@ -213,21 +278,82 @@ function renderRules() {
   renderedRules = serialized;
   $('#budget').value = (state.rules.budgetCents / 100).toFixed(2);
   $('#approval').value = (state.rules.approvalCents / 100).toFixed(2);
-  const options = $('#merchant-options');
-  options.replaceChildren(...state.merchants.map((merchant) => {
-    const label = el('label', 'check');
-    const input = el('input');
-    input.type = 'checkbox';
-    input.value = merchant.id;
-    input.checked = state.rules.allowedMerchantIds.includes(merchant.id);
-    const text = el('span');
-    text.append(el('strong', '', merchant.name), el('span', 'muted', merchant.category));
-    label.append(input, image('logo large', merchant.logo), text);
-    return label;
+  const categories = [...new Set(state.merchants.map((merchant) => merchant.category))];
+  $('#merchant-options').replaceChildren(...categories.map((category) => {
+    const group = el('div', 'category');
+    const head = el('label', 'category-head');
+    const all = el('input');
+    all.type = 'checkbox';
+    all.dataset.category = category;
+    head.append(all, el('strong', '', `All ${category}`));
+    group.append(head, ...state.merchants.filter((merchant) => merchant.category === category).map((merchant) => {
+      const label = el('label', 'check');
+      const input = el('input');
+      input.type = 'checkbox';
+      input.value = merchant.id;
+      input.dataset.merchant = merchant.id;
+      input.checked = state.rules.allowedMerchantIds.includes(merchant.id);
+      const text = el('span');
+      text.append(el('strong', '', merchant.name), el('span', 'muted', merchant.about));
+      label.append(input, image('logo large', merchant.logo), text);
+      return label;
+    }));
+    return group;
+  }));
+  syncCategories();
+}
+
+function syncCategories() {
+  document.querySelectorAll('#merchant-options .category').forEach((group) => {
+    const boxes = [...group.querySelectorAll('input[data-merchant]')];
+    const all = group.querySelector('input[data-category]');
+    all.checked = boxes.every((box) => box.checked);
+    all.indeterminate = !all.checked && boxes.some((box) => box.checked);
+  });
+}
+
+function renderMerchantSettings() {
+  document.querySelectorAll('#merchant-settings input').forEach((input) => {
+    input.checked = state.merchantAgents[input.dataset.merchantId].includes(input.value);
+  });
+}
+
+function buildMerchantSettings() {
+  $('#merchant-settings').replaceChildren(...state.merchants.map((merchant) => {
+    const card = el('li', 'card');
+    const head = el('div', 'merchant-head');
+    const name = el('div');
+    name.append(el('strong', '', merchant.name), el('p', 'muted', merchant.category));
+    head.append(image('logo large', merchant.logo), name);
+    card.append(head);
+    state.agentCompanies.forEach((company) => {
+      const label = el('label', 'check compact');
+      const input = el('input');
+      input.type = 'checkbox';
+      input.value = company.id;
+      input.dataset.merchantId = merchant.id;
+      input.addEventListener('change', () => {
+        const agentCompanyIds = [...card.querySelectorAll('input:checked')].map((box) => box.value);
+        act(`/api/merchants/${merchant.id}/agents`, { agentCompanyIds });
+      });
+      label.append(input, el('span', '', company.name));
+      card.append(label);
+    });
+    return card;
+  }));
+}
+
+function buildAgentCompanies() {
+  $('#agent-company').replaceChildren(...state.agentCompanies.map((company) => {
+    const option = el('option', '', company.name);
+    option.value = company.id;
+    return option;
   }));
 }
 
 function renderAgent() {
+  $('#agent-company').value = state.agentCompanyId;
+  $('#agent-company').disabled = state.agent.running;
   const ahead = state.simulatedDays;
   $('#sim-day').textContent = ahead
     ? `Simulated time is ${ahead} ${ahead === 1 ? 'day' : 'days'} ahead.`
@@ -270,6 +396,7 @@ function renderLog() {
     item.append(head, body);
     if (entry.purchaseId && !withButton.has(entry.purchaseId)) {
       withButton.add(entry.purchaseId);
+      if (wasCharged(purchase)) item.append(button('link details', 'View purchase details', () => openPurchase(purchase.id)));
       item.append(button('link report', refundFor(entry.purchaseId) ? 'View refund request' : 'Report a problem', () => reportOrView(entry.purchaseId)));
     }
     return item;
@@ -355,6 +482,8 @@ function render() {
   renderLog();
   renderRefunds();
   renderRefundDetail();
+  renderPurchaseDetail();
+  renderMerchantSettings();
 }
 
 function setLive(isLive) {
@@ -380,9 +509,21 @@ document.querySelectorAll('.tabs button').forEach((node) => {
 
 $('#rules-form').addEventListener('input', () => { formDirty = true; });
 
+$('#merchant-options').addEventListener('change', ({ target }) => {
+  if (target.dataset.category) {
+    target.closest('.category').querySelectorAll('input[data-merchant]').forEach((box) => { box.checked = target.checked; });
+  }
+  syncCategories();
+});
+
+$('#agent-company').addEventListener('change', (event) => act('/api/agent-company', { id: event.target.value }));
+$('#open-merchants').addEventListener('click', () => showTab('merchants'));
+$('#merchants-back').addEventListener('click', () => showTab('agent'));
+$('#purchase-back').addEventListener('click', () => showTab(purchaseReturnTab));
+
 $('#rules-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  const allowedMerchantIds = [...document.querySelectorAll('#merchant-options input:checked')].map((input) => input.value);
+  const allowedMerchantIds = [...document.querySelectorAll('#merchant-options input[data-merchant]:checked')].map((input) => input.value);
   try {
     await post('/api/rules', {
       budgetCents: toCents($('#budget').value),
@@ -444,6 +585,10 @@ events.onerror = () => setLive(false);
 events.onmessage = (event) => {
   const firstState = !state;
   state = JSON.parse(event.data);
-  if (firstState) buildReportReasons();
+  if (firstState) {
+    buildReportReasons();
+    buildMerchantSettings();
+    buildAgentCompanies();
+  }
   render();
 };

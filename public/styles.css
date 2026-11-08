@@ -180,6 +180,23 @@ main { padding: 20px 16px; }
 .reminder-notice .button { flex: none; color: var(--text); }
 .log-entry.reminder { border-left-color: var(--amber); }
 
+.category { margin-top: 14px; }
+.category-head { display: flex; align-items: center; gap: 10px; min-height: 36px; cursor: pointer; }
+.category-head input { width: 20px; height: 20px; accent-color: var(--brand); }
+
+select { display: block; width: 100%; height: 46px; margin-top: 6px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: inherit; font: inherit; font-weight: 400; }
+#open-merchants { display: block; margin: -12px 0 12px; }
+
+.hero-image { display: block; width: 100%; max-height: 260px; border-radius: 10px; object-fit: contain; }
+.detail-name { margin: 12px 0 0; font-size: 1.15rem; }
+.details { margin: 10px 0 0; }
+.detail-row { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 0.9rem; }
+.detail-row dt { flex: none; color: var(--muted); }
+.detail-row dd { margin: 0; font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.merchant-head { display: flex; align-items: center; gap: 10px; }
+.merchant-head + .description { margin-top: 8px; }
+.link + .link { margin-left: 16px; }
+
 .card.flagged { border: 2px solid var(--danger); }
 .card-button { display: block; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .block { display: block; }

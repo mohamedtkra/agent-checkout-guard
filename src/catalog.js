@@ -1,8 +1,80 @@
-export const MERCHANTS = [
-  { id: 'grocer', name: 'Thistlewick Pantry', category: 'Groceries', logo: '/merchants/grocer.svg' },
-  { id: 'pharmacy', name: 'Mossbell Apothecary', category: 'Health', logo: '/merchants/pharmacy.svg' },
-  { id: 'electronics', name: 'Voltwren Gadgets', category: 'Gadgets', logo: '/merchants/electronics.svg' },
+export const AGENT_COMPANIES = [
+  { id: 'quillhop', name: 'Quillhop Agents' },
+  { id: 'pennowl', name: 'Pennowl Agents' },
+  { id: 'zephwick', name: 'Zephwick Agents' },
 ];
+
+// All merchant details are invented for the prototype.
+export const MERCHANTS = [
+  {
+    id: 'grocer',
+    name: 'Thistlewick Pantry',
+    category: 'Groceries',
+    logo: '/merchants/grocer.svg',
+    about: 'Everyday groceries and pantry staples.',
+    location: '14 Fennel Row, Sampleville',
+    support: 'help@thistlewick.example',
+    returns: 'Refunds on damaged items within 7 days.',
+    acceptedAgents: ['quillhop', 'pennowl', 'zephwick'],
+  },
+  {
+    id: 'market',
+    name: 'Hollowfern Market',
+    category: 'Groceries',
+    logo: '/merchants/market.svg',
+    about: 'Seasonal food hampers and specialty goods.',
+    location: '3 Orchard Steps, Sampleville',
+    support: 'care@hollowfern.example',
+    returns: 'Refunds on unopened items within 14 days.',
+    acceptedAgents: ['quillhop', 'pennowl'],
+  },
+  {
+    id: 'pharmacy',
+    name: 'Mossbell Apothecary',
+    category: 'Health',
+    logo: '/merchants/pharmacy.svg',
+    about: 'Everyday medicines and health supplies.',
+    location: '27 Bellflower Lane, Sampleville',
+    support: 'help@mossbell.example',
+    returns: 'Unopened items only, within 30 days.',
+    acceptedAgents: ['quillhop', 'pennowl'],
+  },
+  {
+    id: 'wellness',
+    name: 'Larkmoss Wellness',
+    category: 'Health',
+    logo: '/merchants/wellness.svg',
+    about: 'Home health devices and wellness products.',
+    location: '8 Skylark Court, Sampleville',
+    support: 'support@larkmoss.example',
+    returns: 'Returns within 30 days with receipt.',
+    acceptedAgents: ['quillhop'],
+  },
+  {
+    id: 'electronics',
+    name: 'Voltwren Gadgets',
+    category: 'Gadgets',
+    logo: '/merchants/electronics.svg',
+    about: 'Chargers, cables, and small electronics.',
+    location: '51 Circuit Yard, Sampleville',
+    support: 'help@voltwren.example',
+    returns: 'Returns within 30 days in original packaging.',
+    acceptedAgents: ['quillhop', 'zephwick'],
+  },
+  {
+    id: 'audio',
+    name: 'Tinkerquay Audio',
+    category: 'Gadgets',
+    logo: '/merchants/audio.svg',
+    about: 'Headphones, speakers, and audio gear.',
+    location: '6 Quayside Works, Sampleville',
+    support: 'hello@tinkerquay.example',
+    returns: 'Returns within 21 days in original packaging.',
+    acceptedAgents: ['quillhop', 'zephwick'],
+  },
+];
+
+export const DEFAULT_MERCHANT_AGENTS = Object.fromEntries(MERCHANTS.map((m) => [m.id, m.acceptedAgents]));
 
 const UNKNOWN_MERCHANT = { name: 'Unknown merchant', logo: '/merchants/unknown.svg' };
 

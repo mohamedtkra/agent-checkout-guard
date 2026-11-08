@@ -5,8 +5,8 @@ export const SHOPPING_LIST = [
   { merchantId: 'pharmacy', item: 'Allergy medicine', amountCents: 1825 },
   { merchantId: 'electronics', item: 'USB charger', amountCents: 2499 },
   { merchantId: 'grocer', item: 'Bulk pantry restock', amountCents: 7800 },
-  { merchantId: 'pharmacy', item: 'Blood pressure monitor', amountCents: 4500, final: { amountCents: 4200 } },
-  { merchantId: 'grocer', item: 'Holiday food hamper', amountCents: 12000 },
+  { merchantId: 'wellness', item: 'Blood pressure monitor', amountCents: 4500, final: { amountCents: 4200 } },
+  { merchantId: 'market', item: 'Holiday food hamper', amountCents: 12000 },
 ];
 
 export const UNCLEARED_CHARGE = { merchantId: 'unlisted-store', item: 'Unrecognized charge', amountCents: 14999 };

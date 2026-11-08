@@ -95,7 +95,7 @@ test('the mock agent moves on after an approval expires', async () => {
 });
 
 test('merchants have invented names, and purchases carry branding and product details', () => {
-  assert.equal(MERCHANTS.length, 3);
+  assert.equal(MERCHANTS.length, 6);
   assert.equal(MERCHANTS.some((m) => /mock/i.test(m.name)), false);
   const { guard, id } = heldPurchase();
   const purchase = guard.getPurchase(id);

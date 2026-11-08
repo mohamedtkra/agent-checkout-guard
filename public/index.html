@@ -48,6 +48,11 @@
     <section id="tab-agent" class="screen" aria-labelledby="nav-agent" hidden>
       <h2>Shopping agent</h2>
       <p id="agent-status" class="lead" role="status"></p>
+      <label class="field" for="agent-company">Agent company
+        <span class="hint">Merchants choose which agent companies they accept.</span>
+        <select id="agent-company"></select>
+      </label>
+      <button id="open-merchants" class="link" type="button">Merchant settings (mock)</button>
       <button id="run-agent" class="button primary wide" type="button">Send agent shopping</button>
       <h3>Safety tests</h3>
       <p class="muted">Each tap tries a different out-of-bounds purchase.</p>
@@ -59,6 +64,19 @@
       <h3>Purchases</h3>
       <ul id="purchases" class="cards"></ul>
       <button id="reset" class="button quiet wide" type="button">Reset demo</button>
+    </section>
+
+    <section id="tab-purchase" class="screen" aria-labelledby="purchase-title" hidden>
+      <button id="purchase-back" class="back" type="button">‹ Back</button>
+      <h2 id="purchase-title">Purchase details</h2>
+      <div id="purchase-detail"></div>
+    </section>
+
+    <section id="tab-merchants" class="screen" aria-labelledby="merchants-title" hidden>
+      <button id="merchants-back" class="back" type="button">‹ Back to agent</button>
+      <h2 id="merchants-title">Merchant settings</h2>
+      <p class="lead">Mock merchant controls. Each merchant chooses which agent companies can buy from it.</p>
+      <ul id="merchant-settings" class="cards"></ul>
     </section>
 
     <section id="tab-approvals" class="screen" aria-labelledby="nav-approvals" hidden>

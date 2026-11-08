@@ -1,9 +1,9 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { MERCHANTS, merchantFor, productFor } from './catalog.js';
+import { AGENT_COMPANIES, DEFAULT_MERCHANT_AGENTS, MERCHANTS, merchantFor, productFor } from './catalog.js';
 
 export const DEFAULT_RULES = {
   budgetCents: 20000,
-  allowedMerchantIds: ['grocer', 'pharmacy'],
+  allowedMerchantIds: ['grocer', 'market', 'pharmacy', 'wellness'],
   approvalCents: 5000,
 };
 
@@ -93,6 +93,8 @@ export class Guard {
   #clear() {
     this.#clockOffsetMs = 0;
     this.rules = structuredClone(DEFAULT_RULES);
+    this.agentCompanyId = AGENT_COMPANIES[0].id;
+    this.merchantAgents = structuredClone(DEFAULT_MERCHANT_AGENTS);
     this.purchases = [];
     this.log = [];
     this.refunds = [];
@@ -141,6 +143,7 @@ export class Guard {
       merchantId,
       merchantName: merchant.name,
       merchantLogo: merchant.logo,
+      agentCompanyName: this.#agentCompany().name,
       item,
       description: product.description,
       color: product.color ?? null,
@@ -193,6 +196,20 @@ export class Guard {
       && now - Date.parse(p.at) < DUPLICATE_WINDOW_MS);
   }
 
+  #agentCompany() {
+    return AGENT_COMPANIES.find((company) => company.id === this.agentCompanyId);
+  }
+
+  #merchantRefusesAgent(merchantId) {
+    return Object.hasOwn(this.merchantAgents, merchantId)
+      && !this.merchantAgents[merchantId].includes(this.agentCompanyId);
+  }
+
+  #partnerProblem(merchantId) {
+    if (!this.#merchantRefusesAgent(merchantId)) return null;
+    return { code: 'merchant_agent', reason: `${merchantName(merchantId)} does not accept agents from ${this.#agentCompany().name}.` };
+  }
+
   #agreedBy(purchase) {
     return purchase.customerApproved ? 'you approved' : 'the guard cleared';
   }
@@ -218,6 +235,8 @@ export class Guard {
     const committed = this.#sumCents(COMMITTED_STATUSES, purchase.id);
     const { outcome, reason } = evaluate(this.rules, committed, purchase.merchantId, amountCents);
     if (outcome === 'block') return { code: 'rules', reason };
+    const partner = this.#partnerProblem(purchase.merchantId);
+    if (partner) return partner;
     if (outcome === 'approval' && !purchase.customerApproved) {
       return { code: 'approval_required', reason: `${reason} Your approval is required.` };
     }
@@ -236,6 +255,7 @@ export class Guard {
     const committed = this.#sumCents(COMMITTED_STATUSES, purchase.id);
     if (!purchase.cleared) problems.push('the guard never cleared it');
     if (!this.rules.allowedMerchantIds.includes(purchase.merchantId)) problems.push('the merchant is not on your allowed list');
+    if (this.#merchantRefusesAgent(purchase.merchantId)) problems.push('the merchant does not accept this agent company');
     if (committed + purchase.amountCents > this.rules.budgetCents) problems.push('it goes over your budget');
     if (purchase.amountCents > this.rules.approvalCents && !purchase.customerApproved) problems.push('it needed your approval');
     if (problems.length === 0) return;
@@ -297,6 +317,9 @@ export class Guard {
     return {
       rules: this.rules,
       merchants: MERCHANTS,
+      agentCompanies: AGENT_COMPANIES,
+      agentCompanyId: this.agentCompanyId,
+      merchantAgents: this.merchantAgents,
       refundReasons: REFUND_REASONS,
       now: this.#nowIso(),
       simulatedDays: this.#clockOffsetMs / DAY_MS,
@@ -332,6 +355,26 @@ export class Guard {
     };
     const names = this.rules.allowedMerchantIds.map(merchantName).join(', ') || 'none';
     this.#record('customer', `Set rules: ${money(this.rules.budgetCents)} budget, approval above ${money(this.rules.approvalCents)}, allowed merchants: ${names}.`);
+    this.#notify();
+  }
+
+  setAgentCompany(id) {
+    if (!AGENT_COMPANIES.some((company) => company.id === id)) throw new GuardError('Agent company not found.', 404);
+    if (this.agentStatus.running) throw new GuardError('Wait for the agent to finish before changing its company.', 409);
+    if (id === this.agentCompanyId) return;
+    this.agentCompanyId = id;
+    this.#record('customer', `Chose ${this.#agentCompany().name} as the agent company.`);
+    this.#notify();
+  }
+
+  setMerchantAgents(merchantId, agentCompanyIds) {
+    if (!Object.hasOwn(this.merchantAgents, merchantId)) throw new GuardError('Merchant not found.', 404);
+    if (!Array.isArray(agentCompanyIds) || !agentCompanyIds.every((id) => AGENT_COMPANIES.some((company) => company.id === id))) {
+      throw new GuardError('Agent companies must be known companies.');
+    }
+    this.merchantAgents[merchantId] = [...new Set(agentCompanyIds)];
+    const names = AGENT_COMPANIES.filter((c) => this.merchantAgents[merchantId].includes(c.id)).map((c) => c.name).join(', ') || 'none';
+    this.#record('merchant', `${merchantName(merchantId)} now accepts agents from: ${names}.`);
     this.#notify();
   }
 
@@ -382,8 +425,11 @@ export class Guard {
     } else {
       const committed = this.#sumCents(COMMITTED_STATUSES, purchase.id);
       const { outcome, reason } = evaluate(this.rules, committed, merchantId, amountCents);
+      const partner = this.#partnerProblem(merchantId);
       if (outcome === 'block') {
         this.#block(purchase, 'rules', reason);
+      } else if (partner) {
+        this.#block(purchase, partner.code, partner.reason);
       } else if (this.#isDuplicate(purchase)) {
         this.#block(purchase, 'duplicate', 'Duplicate of a recent purchase with the same merchant, item, and amount.');
       } else if (outcome === 'approval') {

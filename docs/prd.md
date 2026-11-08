@@ -27,6 +27,7 @@ Other non-goals: TBD
 | User | Need |
 | --- | --- |
 | Busy consumers | An agent that handles routine purchases without risking overspending or fraud |
+| Merchants (mock in the prototype) | Control over which agent companies can buy from them |
 
 ## Requirements
 
@@ -57,6 +58,9 @@ Other non-goals: TBD
 | R23 | Testers can simulate the next day to see reminders and expiry without waiting. | TBD |
 | R24 | Each mock merchant has an original, invented brand name and a simple SVG logo, shown on purchase cards, the approval screen, and the activity log. | TBD |
 | R25 | Each purchase shows an original product illustration or placeholder, name, short description, price, and color and size where they apply. The approval screen shows all of this. | TBD |
+| R26 | Merchants belong to categories, and a customer can allow a whole category or individual merchants. | TBD |
+| R27 | Each merchant chooses which agent companies it accepts, and a purchase is blocked if the merchant does not accept the agent's company. | TBD |
+| R28 | After a purchase is made, the customer can see a picture of the item, its details, and the merchant's information. | TBD |
 
 ## Key flow
 
