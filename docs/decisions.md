@@ -21,10 +21,23 @@ A running log of significant project decisions. Add new entries at the top, and 
 
 ## Log
 
-## 003: Block mismatches, auto-pause on flagged charges, and model refunds on card disputes
+## 004: Allow lower final prices
 
 - **Date:** 2026-11-08
 - **Status:** Accepted
+
+**Context:** Decision 003 blocked any change to the final price, including a lower one. Its consequences noted that this would block harmless changes.
+
+**Decision:** A lower final price is allowed, charged at the lower price, and logged. A higher final price is still blocked, along with a different merchant or item and a duplicate purchase. This supersedes the part of decision 003 that blocked lower prices.
+
+**Alternatives considered:** Keeping the block on every price change would stop purchases that benefit the customer. Asking the customer to approve a lower price would add an interruption with no protective value.
+
+**Consequences:** A lower price benefits the customer, so it is logged rather than blocked. A final price that cannot be read, such as zero or a negative amount, is still blocked rather than treated as lower.
+
+## 003: Block mismatches, auto-pause on flagged charges, and model refunds on card disputes
+
+- **Date:** 2026-11-08
+- **Status:** Accepted, partly superseded by 004
 
 **Context:** Customers need protection at three points: before a charge, when a charge goes through that should not have, and after a purchase goes wrong.
 
@@ -34,10 +47,25 @@ A running log of significant project decisions. Add new entries at the top, and 
 
 **Consequences:** A harmless change, such as a lower final price, is also blocked, so false blocks need watching. One flagged charge stops all agent purchases until the customer acts. In the prototype, processing is mock, stages are advanced by hand, and resolution estimates are placeholders.
 
+## 002: Approvals expire after 3 days, with countdown reminders
+
+- **Date:** 2026-11-08
+- **Status:** Accepted
+
+**Context:** A pending approval had no time limit, so a purchase could wait forever and keep holding part of the budget.
+
+**Decision:** A pending approval lasts 3 days. The customer receives an in-app reminder on day 1 and day 2, and each reminder counts down to expiry, for example "Reminder 1 of 2 - this request expires in 2 days". If there is no decision by day 3, the purchase is auto-denied and logged. This supersedes the part of decision 001 where the agent waits indefinitely.
+
+**Why:** 3 days gives busy customers time to respond. Reminders with a countdown reduce missed approvals. Auto-deny is the safe default.
+
+**Alternatives considered:** Waiting indefinitely leaves budget held with no end. Auto-approving at expiry would let money move without the customer's decision.
+
+**Consequences:** A customer who misses all reminders loses that purchase and the agent moves on. Reminders are in-app only in the prototype, and testers use a simulated clock to see them.
+
 ## 001: Prototype behavior for open PRD questions
 
 - **Date:** 2026-11-08
-- **Status:** Proposed
+- **Status:** Proposed, partly superseded by 002
 
 **Context:** The first prototype needed working behavior for questions the PRD leaves open.
 

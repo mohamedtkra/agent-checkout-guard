@@ -16,9 +16,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Flagged charges shown in red in the activity log, with automatic agent pause and a customer alert.
 - Report a problem on purchases, refund requests with a status timeline, a Refunds tab, and mock processing with Simulate next step.
 - Decision 003, and trust and safety flows and metrics in the PRD and metrics docs.
+- Approval expiry: pending approvals last 3 days, with in-app countdown reminders on day 1 and day 2, an auto-deny on day 3, and Simulate next day for testers.
+- Original invented merchant brands with SVG logos on purchase cards, the approval screen, and the activity log.
+- Product details on each purchase: original SVG illustration, name, description, price, and color and size where they apply.
+- Decisions 002 and 004, and approval expiry, branding, and product requirements in the PRD.
 
 ### Changed
 
 - Replaced the assumed product description in the README and one-pager with the confirmed one.
 - Updated the PRD and metrics to match the confirmed product definition.
 - Purchases now clear the guard first and are charged only after a separate final checkout.
+- A lower final price is now allowed and logged. Only higher final prices are blocked.

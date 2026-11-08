@@ -159,6 +159,27 @@ main { padding: 20px 16px; }
 .tag.refunded { background: var(--green-soft); color: var(--green-ink); }
 .tag.flag { background: var(--danger); color: var(--danger-text); }
 
+.product { display: flex; gap: 12px; }
+.product-image { width: 72px; height: 72px; flex: none; border-radius: 10px; }
+.product-info { flex: 1; min-width: 0; }
+.description { margin-top: 2px; color: var(--muted); font-size: 0.88rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chip { padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+.meta { margin-top: 10px; }
+.merchant { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.logo { width: 24px; height: 24px; flex: none; border-radius: 6px; }
+.logo.large { width: 38px; height: 38px; border-radius: 9px; }
+.approval .product-image { width: 112px; height: 112px; }
+.approval .amount { font-size: 1.2rem; }
+.countdown { margin-top: 8px; color: var(--amber-ink); font-size: 0.9rem; font-weight: 700; }
+.log-body { display: flex; align-items: flex-start; gap: 8px; margin-top: 2px; }
+
+.reminders { display: grid; gap: 8px; margin: 12px 16px 0; }
+.reminder-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 10px; background: var(--amber-soft); color: var(--amber-ink); }
+.reminder-notice p { font-size: 0.84rem; }
+.reminder-notice .button { flex: none; color: var(--text); }
+.log-entry.reminder { border-left-color: var(--amber); }
+
 .card.flagged { border: 2px solid var(--danger); }
 .card-button { display: block; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .block { display: block; }

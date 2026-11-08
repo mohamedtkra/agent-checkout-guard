@@ -63,9 +63,42 @@ test('a final price above what the customer approved is blocked', () => {
   assert.equal(guard.snapshot().spentCents, 0);
 });
 
-test('a final price below the cleared price is also a mismatch', () => {
+test('a lower final price is charged at that price and logged', () => {
   const guard = activeGuard();
-  assert.equal(finalize(guard, attempt(guard), { amountCents: 1999 }).code, 'mismatch');
+  const result = finalize(guard, attempt(guard), { amountCents: 1500 });
+  assert.equal(result.status, 'completed');
+  assert.equal(result.amountCents, 1500);
+  assert.equal(result.originalCents, 2000);
+  assert.equal(guard.snapshot().spentCents, 1500);
+  assert.equal(guard.snapshot().heldCents, 0);
+  assert.equal(guard.paused, false);
+  assert.ok(logged(guard, /Allowed lower final price for Item: \$15\.00 instead of the \$20\.00/));
+});
+
+test('a lower final price is allowed on a customer-approved purchase', () => {
+  const guard = activeGuard();
+  const approved = guard.decide(attempt(guard, 6000).id, true);
+  assert.equal(finalize(guard, approved, { amountCents: 5500 }).status, 'completed');
+  assert.ok(logged(guard, /instead of the \$60\.00 you approved/));
+  assert.equal(guard.paused, false);
+});
+
+test('a final price that cannot be checked is blocked rather than treated as lower', () => {
+  const guard = activeGuard();
+  for (const [index, amountCents] of [0, -100, Number.NaN, 10.5, '100'].entries()) {
+    const result = finalize(guard, attempt(guard, 100 + index, `Item ${index}`), { amountCents });
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.code, 'mismatch');
+  }
+  assert.equal(guard.snapshot().spentCents, 0);
+});
+
+test('a lower final price still has to fit the current rules', () => {
+  const guard = activeGuard();
+  const cleared = attempt(guard);
+  guard.setRules({ ...RULES, allowedMerchantIds: [] });
+  assert.equal(finalize(guard, cleared, { amountCents: 1000 }).code, 'rules');
+  assert.equal(guard.getPurchase(cleared.id).amountCents, 2000);
 });
 
 test('a different final merchant or item is blocked', () => {

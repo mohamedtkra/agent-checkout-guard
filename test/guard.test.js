@@ -127,8 +127,8 @@ test('every attempt appears in the log', () => {
   buy(guard, 2000);
   buy(guard, 100, 'electronics');
   const messages = guard.log.map((entry) => entry.message).join('\n');
-  assert.match(messages, /Mock Grocer/);
-  assert.match(messages, /Mock Electronics/);
+  assert.match(messages, /Thistlewick Pantry/);
+  assert.match(messages, /Voltwren Gadgets/);
   assert.match(messages, /Blocked Item/);
 });
 
@@ -147,7 +147,7 @@ test('the mock agent exercises each outcome with the default rules', async () =>
   await run;
 
   assert.deepEqual(guard.purchases.map((p) => p.status), ['completed', 'completed', 'blocked', 'completed', 'completed', 'blocked']);
-  assert.equal(guard.snapshot().spentCents, 18375);
+  assert.equal(guard.snapshot().spentCents, 18075);
   assert.equal(guard.agentStatus.running, false);
 });
 

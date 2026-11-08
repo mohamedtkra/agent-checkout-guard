@@ -2,16 +2,19 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { MockAgent, UNCLEARED_CHARGE } from './agent.js';
+import { ASSET_PATHS } from './catalog.js';
 import { Guard, GuardError } from './guard.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT ?? 4321);
 const MAX_BODY_BYTES = 10_000;
+const APPROVAL_CHECK_MS = 60_000;
 
 const STATIC_FILES = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/styles.css': ['styles.css', 'text/css; charset=utf-8'],
+  ...Object.fromEntries(ASSET_PATHS.map((path) => [path, [path.slice(1), 'image/svg+xml']])),
 };
 
 const guard = new Guard();
@@ -68,6 +71,8 @@ async function handlePost(req, res, pathname) {
     guard.resumeAgent();
   } else if (pathname === '/api/simulate/uncleared-charge') {
     guard.recordUnclearedCharge(UNCLEARED_CHARGE);
+  } else if (pathname === '/api/simulate/next-day') {
+    guard.advanceDay();
   } else if (decision) {
     guard.decide(decision[1], body.approve === true);
   } else if (report) {
@@ -102,6 +107,8 @@ async function handle(req, res) {
   });
   res.end(content);
 }
+
+setInterval(() => guard.checkApprovals(), APPROVAL_CHECK_MS);
 
 createServer((req, res) => {
   handle(req, res).catch((error) => {

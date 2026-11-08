@@ -9,12 +9,13 @@ const STATUS_LABELS = {
   canceled: 'Canceled',
   refunded: 'Refunded',
 };
-const ACTOR_LABELS = { customer: 'You', agent: 'Agent', guard: 'Guard', payment: 'Test payment', refund: 'Refunds' };
+const ACTOR_LABELS = { customer: 'You', agent: 'Agent', guard: 'Guard', payment: 'Test payment', refund: 'Refunds', reminder: 'Reminder', clock: 'Test clock' };
+const DAY_MS = 24 * 60 * 60 * 1000;
 const PARENT_TABS = { report: 'activity', refund: 'refunds' };
 
 const money = (cents) => `$${(cents / 100).toFixed(2)}`;
 const toCents = (value) => Math.round(Number(value) * 100);
-const time = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+const time = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
 const day = (iso) => new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 const dayAndTime = (iso) => `${day(iso)}, ${new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
 
@@ -30,6 +31,13 @@ function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function image(className, src, alt = '') {
+  const node = el('img', className);
+  node.src = src;
+  node.alt = alt;
   return node;
 }
 
@@ -111,10 +119,25 @@ function purchaseCard(purchase) {
   const card = el('li', purchase.flagged ? 'card flagged' : 'card');
   const row = el('div', 'card-row');
   row.append(el('strong', '', purchase.item), el('span', 'amount', money(purchase.amountCents)));
-  const meta = el('div', 'card-row');
-  const merchant = purchase.overreach ? `${purchase.merchantName} · Overreach test` : purchase.merchantName;
-  meta.append(el('span', 'muted', merchant), el('span', `tag ${purchase.flagged ? 'flag' : purchase.status}`, purchase.flagged ? 'Flagged' : STATUS_LABELS[purchase.status]));
-  card.append(row, meta);
+  const info = el('div', 'product-info');
+  info.append(row, el('p', 'description', purchase.description));
+  const details = [purchase.color && `Color: ${purchase.color}`, purchase.size && `Size: ${purchase.size}`].filter(Boolean);
+  if (details.length) {
+    const chips = el('p', 'chips');
+    chips.append(...details.map((detail) => el('span', 'chip', detail)));
+    info.append(chips);
+  }
+  const product = el('div', 'product');
+  product.append(image('product-image', purchase.image), info);
+
+  const merchant = el('span', 'merchant');
+  merchant.append(
+    image('logo', purchase.merchantLogo),
+    el('span', 'muted', purchase.overreach ? `${purchase.merchantName} · Overreach test` : purchase.merchantName),
+  );
+  const meta = el('div', 'card-row meta');
+  meta.append(merchant, el('span', `tag ${purchase.flagged ? 'flag' : purchase.status}`, purchase.flagged ? 'Flagged' : STATUS_LABELS[purchase.status]));
+  card.append(product, meta);
   if (purchase.reason) card.append(el('p', 'reason', purchase.reason));
   return card;
 }
@@ -122,6 +145,9 @@ function purchaseCard(purchase) {
 function approvalCard(purchase) {
   const card = purchaseCard(purchase);
   card.classList.add('approval');
+  const daysLeft = Math.ceil((Date.parse(purchase.expiresAt) - Date.parse(state.now)) / DAY_MS);
+  const countdown = purchase.reminder ?? `This request expires in ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}`;
+  card.append(el('p', 'countdown', `${countdown}, on ${day(purchase.expiresAt)}.`));
   card.append(el('p', 'reason', `If approved, ${money(state.remainingCents)} of your budget stays available.`));
   const actions = el('div', 'actions');
   const decide = (approve) => async () => {
@@ -167,6 +193,19 @@ function renderAlert() {
   box.replaceChildren(el('strong', '', 'Charge flagged. Agent paused.'), el('p', '', alert.message), actions);
 }
 
+function renderReminders() {
+  const box = $('#reminders');
+  const reminders = state.purchases.filter((purchase) => purchase.status === 'pending' && purchase.reminder);
+  box.hidden = reminders.length === 0;
+  box.replaceChildren(...reminders.map((purchase) => {
+    const notice = el('div', 'reminder-notice');
+    const text = el('div');
+    text.append(el('strong', '', purchase.reminder), el('p', '', `${purchase.item} at ${purchase.merchantName}, ${money(purchase.amountCents)}`));
+    notice.append(text, button('button', 'Review', () => showTab('approvals')));
+    return notice;
+  }));
+}
+
 function renderRules() {
   $('#save-rules').textContent = state.access.active ? 'Save rules' : 'Save rules and give agent access';
   const serialized = JSON.stringify(state.rules);
@@ -183,12 +222,16 @@ function renderRules() {
     input.checked = state.rules.allowedMerchantIds.includes(merchant.id);
     const text = el('span');
     text.append(el('strong', '', merchant.name), el('span', 'muted', merchant.category));
-    label.append(input, text);
+    label.append(input, image('logo large', merchant.logo), text);
     return label;
   }));
 }
 
 function renderAgent() {
+  const ahead = state.simulatedDays;
+  $('#sim-day').textContent = ahead
+    ? `Simulated time is ${ahead} ${ahead === 1 ? 'day' : 'days'} ahead.`
+    : 'A pending approval lasts 3 days. Simulated time is on today.';
   $('#agent-status').textContent = !state.access.active && !state.agent.running && !state.purchases.length
     ? 'The agent has no access yet, so its purchases will be blocked.'
     : state.agent.message;
@@ -213,13 +256,18 @@ function renderApprovals() {
 
 function renderLog() {
   const entries = [...state.log].reverse();
+  const purchasesById = new Map(state.purchases.map((purchase) => [purchase.id, purchase]));
   // Each purchase gets one report button, on its newest entry.
   const withButton = new Set();
   $('#log').replaceChildren(...(entries.length ? entries.map((entry) => {
     const item = el('li', `log-entry ${entry.actor}${entry.flagged ? ' flagged' : ''}`);
     const head = el('div', 'card-row');
     head.append(el('strong', '', entry.flagged ? 'Flagged' : ACTOR_LABELS[entry.actor]), el('time', 'muted', time(entry.at)));
-    item.append(head, el('p', '', entry.message));
+    const body = el('div', 'log-body');
+    const purchase = purchasesById.get(entry.purchaseId);
+    if (purchase) body.append(image('logo', purchase.merchantLogo, `${purchase.merchantName} logo`));
+    body.append(el('p', '', entry.message));
+    item.append(head, body);
     if (entry.purchaseId && !withButton.has(entry.purchaseId)) {
       withButton.add(entry.purchaseId);
       item.append(button('link report', refundFor(entry.purchaseId) ? 'View refund request' : 'Report a problem', () => reportOrView(entry.purchaseId)));
@@ -300,6 +348,7 @@ function renderRefundDetail() {
 function render() {
   renderHeader();
   renderAlert();
+  renderReminders();
   renderRules();
   renderAgent();
   renderApprovals();
@@ -357,6 +406,7 @@ $('#access-button').addEventListener('click', () => {
 $('#run-agent').addEventListener('click', () => act('/api/agent/run'));
 $('#simulate-overreach').addEventListener('click', () => act('/api/agent/overreach'));
 $('#simulate-uncleared').addEventListener('click', () => act('/api/simulate/uncleared-charge'));
+$('#simulate-next-day').addEventListener('click', () => act('/api/simulate/next-day'));
 $('#report-back').addEventListener('click', () => showTab('activity'));
 $('#refund-back').addEventListener('click', () => showTab('refunds'));
 

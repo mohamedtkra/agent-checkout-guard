@@ -44,13 +44,19 @@ Other non-goals: TBD
 | R10 | If the rules cannot be checked, the purchase does not proceed. | TBD |
 | R11 | All purchases use mock merchants and test card tokens, with no real payments. | TBD |
 | R12 | Before any charge, the server re-checks the final amount, merchant, and item against the rules and against what the customer approved. | TBD |
-| R13 | Any mismatch or duplicate purchase is blocked, and each block is logged with its reason. | TBD |
+| R13 | A higher final price, a different merchant or item, or a duplicate purchase is blocked, and each block is logged with its reason. A lower final price is allowed and logged. | TBD |
 | R14 | Testers can simulate an agent attempting an out-of-bounds purchase and see the guard catch it. | TBD |
 | R15 | A charge that goes through outside the rules is flagged in red in the activity log, pauses the agent automatically, and alerts the customer. | TBD |
 | R16 | Every purchase in the activity log has a way to report a problem, with a reason and an optional note. | TBD |
 | R17 | A report creates a refund request with a status timeline showing Submitted, Under review, Merchant contacted, and Refunded or Declined, with the date of each step and the expected time to resolve. | TBD |
 | R18 | A Refunds tab lists all refund requests. | TBD |
 | R19 | Refund processing is mocked, and testers can move a request to its next stage. | TBD |
+| R20 | A pending approval lasts 3 days. | TBD |
+| R21 | The customer receives an in-app reminder on day 1 and day 2, each showing the reminder count and the time left before the request expires. | TBD |
+| R22 | With no decision by day 3, the purchase is auto-denied and logged. | TBD |
+| R23 | Testers can simulate the next day to see reminders and expiry without waiting. | TBD |
+| R24 | Each mock merchant has an original, invented brand name and a simple SVG logo, shown on purchase cards, the approval screen, and the activity log. | TBD |
+| R25 | Each purchase shows an original product illustration or placeholder, name, short description, price, and color and size where they apply. The approval screen shows all of this. | TBD |
 
 ## Key flow
 
@@ -61,17 +67,27 @@ Other non-goals: TBD
 5. Every agent action appears in the live log.
 6. The customer can revoke access at any point.
 
+## Approval expiry flow
+
+See [decision 002](decisions.md).
+
+1. A purchase above the approval amount waits for the customer for up to 3 days.
+2. On day 1, the customer sees "Reminder 1 of 2 - this request expires in 2 days".
+3. On day 2, the customer sees "Reminder 2 of 2 - this request expires in 1 day".
+4. With no decision by day 3, the purchase is auto-denied and logged, its budget hold is released, and the agent moves on.
+
 ## Trust and safety flows
 
-See [decision 003](decisions.md).
+See decisions [003 and 004](decisions.md).
 
 ### Prevent
 
 1. A purchase that passes the rules, or that the customer approves, is cleared for checkout. No money moves yet.
 2. The agent submits the final amount, merchant, and item.
 3. The server compares them with what was cleared or approved, and checks the rules again.
-4. A mismatch, such as a different price, merchant, or item, is blocked. So is a duplicate purchase.
-5. Each block appears in the activity log with its reason.
+4. A higher price, a different merchant or item, or a duplicate purchase is blocked.
+5. A lower price is allowed, charged at the lower amount, and logged.
+6. Each block appears in the activity log with its reason.
 
 ### Detect
 
@@ -99,5 +115,5 @@ See [decision 003](decisions.md).
 
 - Which AI shopping agents are supported first, and how do they connect?
 - Does the budget apply per purchase, per period, or overall?
-- How do approval requests reach the phone, and what happens if the customer does not respond?
+- How do approval requests and reminders reach the phone outside the app?
 - What happens to a purchase in progress when access is revoked?

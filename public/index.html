@@ -22,6 +22,7 @@
   </header>
 
   <div id="alert" class="alert" role="alert" hidden></div>
+  <div id="reminders" class="reminders" role="status" hidden></div>
 
   <main>
     <section id="tab-rules" class="screen" aria-labelledby="nav-rules">
@@ -52,6 +53,9 @@
       <p class="muted">Each tap tries a different out-of-bounds purchase.</p>
       <button id="simulate-overreach" class="button wide spaced" type="button">Simulate agent overreach</button>
       <button id="simulate-uncleared" class="button wide spaced" type="button">Simulate charge that slips past the guard</button>
+      <h3>Approval timing</h3>
+      <p id="sim-day" class="muted"></p>
+      <button id="simulate-next-day" class="button wide spaced" type="button">Simulate next day</button>
       <h3>Purchases</h3>
       <ul id="purchases" class="cards"></ul>
       <button id="reset" class="button quiet wide" type="button">Reset demo</button>

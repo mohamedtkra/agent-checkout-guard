@@ -1,10 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-
-export const MERCHANTS = [
-  { id: 'grocer', name: 'Mock Grocer', category: 'Groceries' },
-  { id: 'pharmacy', name: 'Mock Pharmacy', category: 'Health' },
-  { id: 'electronics', name: 'Mock Electronics', category: 'Gadgets' },
-];
+import { MERCHANTS, merchantFor, productFor } from './catalog.js';
 
 export const DEFAULT_RULES = {
   budgetCents: 20000,
@@ -28,6 +23,8 @@ const REFUND_STAGES = [
   { id: 'resolved', label: 'Refunded or Declined', days: 10 },
 ];
 
+const APPROVAL_DAYS = 3;
+const REMINDER_COUNT = 2;
 const DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
 const MAX_NOTE_LENGTH = 500;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -43,7 +40,8 @@ export class GuardError extends Error {
 
 const isCents = (value) => Number.isSafeInteger(value) && value >= 0;
 const money = (cents) => `$${(cents / 100).toFixed(2)}`;
-const merchantName = (id) => MERCHANTS.find((m) => m.id === id)?.name ?? 'Unknown merchant';
+const merchantName = (id) => merchantFor(id).name;
+const dayWord = (days) => (days === 1 ? '1 day' : `${days} days`);
 
 export function rulesError(rules) {
   if (!rules || typeof rules !== 'object') return 'Rules are missing.';
@@ -78,12 +76,22 @@ export class Guard {
   #token = null;
   #waiters = new Map();
   #listeners = new Set();
+  #clockOffsetMs = 0;
 
   constructor() {
     this.#clear();
   }
 
+  #nowMs() {
+    return Date.now() + this.#clockOffsetMs;
+  }
+
+  #nowIso() {
+    return new Date(this.#nowMs()).toISOString();
+  }
+
   #clear() {
+    this.#clockOffsetMs = 0;
     this.rules = structuredClone(DEFAULT_RULES);
     this.purchases = [];
     this.log = [];
@@ -106,7 +114,7 @@ export class Guard {
   #record(actor, message, purchase = null, flagged = false) {
     this.log.push({
       id: randomUUID(),
-      at: new Date().toISOString(),
+      at: this.#nowIso(),
       actor,
       message,
       purchaseId: purchase?.id ?? null,
@@ -125,13 +133,24 @@ export class Guard {
   }
 
   #open({ merchantId, item, amountCents, overreach = false }) {
+    const merchant = merchantFor(merchantId);
+    const product = productFor(item);
     const purchase = {
       id: randomUUID(),
-      at: new Date().toISOString(),
+      at: this.#nowIso(),
       merchantId,
-      merchantName: merchantName(merchantId),
+      merchantName: merchant.name,
+      merchantLogo: merchant.logo,
       item,
+      description: product.description,
+      color: product.color ?? null,
+      size: product.size ?? null,
+      image: product.image,
       amountCents,
+      originalCents: null,
+      expiresAt: null,
+      remindersSent: 0,
+      reminder: null,
       status: 'pending',
       reason: '',
       code: null,
@@ -147,7 +166,7 @@ export class Guard {
   #settle(purchase, status, reason) {
     purchase.status = status;
     purchase.reason = reason;
-    purchase.settledAt = new Date().toISOString();
+    purchase.settledAt = this.#nowIso();
     this.#waiters.get(purchase.id)?.();
     this.#waiters.delete(purchase.id);
   }
@@ -174,11 +193,17 @@ export class Guard {
       && now - Date.parse(p.at) < DUPLICATE_WINDOW_MS);
   }
 
+  #agreedBy(purchase) {
+    return purchase.customerApproved ? 'you approved' : 'the guard cleared';
+  }
+
   #mismatchProblem(purchase, final) {
-    const agreed = purchase.customerApproved ? 'you approved' : 'the guard cleared';
-    if (final.amountCents !== purchase.amountCents) {
-      const direction = final.amountCents > purchase.amountCents ? 'is higher than' : 'differs from';
-      return { code: 'mismatch', reason: `Final price ${money(final.amountCents)} ${direction} the ${money(purchase.amountCents)} ${agreed}.` };
+    const agreed = this.#agreedBy(purchase);
+    if (!Number.isSafeInteger(final.amountCents) || final.amountCents <= 0) {
+      return { code: 'mismatch', reason: 'Final price could not be checked.' };
+    }
+    if (final.amountCents > purchase.amountCents) {
+      return { code: 'mismatch', reason: `Final price ${money(final.amountCents)} is higher than the ${money(purchase.amountCents)} ${agreed}.` };
     }
     if (final.merchantId !== purchase.merchantId) {
       return { code: 'mismatch', reason: `Final merchant ${merchantName(final.merchantId)} is not the ${purchase.merchantName} ${agreed}.` };
@@ -189,9 +214,9 @@ export class Guard {
     return null;
   }
 
-  #rulesProblem(purchase) {
+  #rulesProblem(purchase, amountCents = purchase.amountCents) {
     const committed = this.#sumCents(COMMITTED_STATUSES, purchase.id);
-    const { outcome, reason } = evaluate(this.rules, committed, purchase.merchantId, purchase.amountCents);
+    const { outcome, reason } = evaluate(this.rules, committed, purchase.merchantId, amountCents);
     if (outcome === 'block') return { code: 'rules', reason };
     if (outcome === 'approval' && !purchase.customerApproved) {
       return { code: 'approval_required', reason: `${reason} Your approval is required.` };
@@ -219,7 +244,7 @@ export class Guard {
     purchase.flagged = true;
     purchase.reason = summary;
     this.#record('guard', `Flagged charge: ${summary}`, purchase, true);
-    this.alerts.push({ id: randomUUID(), at: new Date().toISOString(), purchaseId: purchase.id, message: summary });
+    this.alerts.push({ id: randomUUID(), at: this.#nowIso(), purchaseId: purchase.id, message: summary });
     this.#pause();
   }
 
@@ -229,6 +254,34 @@ export class Guard {
     this.agentStatus = { running: this.agentStatus.running, message: 'Paused after a flagged charge.' };
     this.#record('guard', 'Paused the agent automatically after a flagged charge.', null, true);
     this.#cancelHeld('The agent was paused after a flagged charge.');
+  }
+
+  #applyLowerPrice(purchase, amountCents) {
+    purchase.originalCents = purchase.amountCents;
+    purchase.amountCents = amountCents;
+    this.#record('guard', `Allowed lower final price for ${purchase.item}: ${money(amountCents)} instead of the ${money(purchase.originalCents)} ${this.#agreedBy(purchase)}.`, purchase);
+  }
+
+  // Sends any reminders that are due and auto-denies approvals that have run out of time.
+  #sweepApprovals() {
+    let changed = false;
+    for (const purchase of this.purchases.filter((p) => p.status === 'pending')) {
+      const elapsedDays = (this.#nowMs() - Date.parse(purchase.at)) / DAY_MS;
+      const reminderDue = Math.min(Math.floor(elapsedDays), REMINDER_COUNT);
+      if (elapsedDays >= APPROVAL_DAYS) {
+        const reason = `Auto-denied: no decision within ${dayWord(APPROVAL_DAYS)}.`;
+        purchase.code = 'expired';
+        this.#settle(purchase, 'denied', reason);
+        this.#record('guard', `Auto-denied ${purchase.item} at ${purchase.merchantName}: no decision within ${dayWord(APPROVAL_DAYS)}.`, purchase);
+        changed = true;
+      } else if (reminderDue > purchase.remindersSent) {
+        purchase.remindersSent = reminderDue;
+        purchase.reminder = `Reminder ${reminderDue} of ${REMINDER_COUNT} - this request expires in ${dayWord(APPROVAL_DAYS - reminderDue)}`;
+        this.#record('reminder', `${purchase.reminder}: ${purchase.item} at ${purchase.merchantName}.`, purchase);
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   #cancelHeld(reason) {
@@ -245,6 +298,8 @@ export class Guard {
       rules: this.rules,
       merchants: MERCHANTS,
       refundReasons: REFUND_REASONS,
+      now: this.#nowIso(),
+      simulatedDays: this.#clockOffsetMs / DAY_MS,
       access: { active: this.#token !== null, token: this.#maskedToken() },
       paused: this.paused,
       alerts: this.alerts,
@@ -304,6 +359,18 @@ export class Guard {
     this.#notify();
   }
 
+  checkApprovals() {
+    if (this.#sweepApprovals()) this.#notify();
+  }
+
+  // Test control: moves the clock forward so reminders and expiry can be seen without waiting.
+  advanceDay() {
+    this.#clockOffsetMs += DAY_MS;
+    this.#record('clock', `Simulated time moved forward. Now ${dayWord(this.#clockOffsetMs / DAY_MS)} ahead.`);
+    this.#sweepApprovals();
+    this.#notify();
+  }
+
   // First gate: decides whether the agent may proceed to checkout. No money moves here.
   attempt({ token, merchantId, item, amountCents, overreach = false }) {
     const purchase = this.#open({ merchantId, item, amountCents, overreach });
@@ -321,6 +388,7 @@ export class Guard {
         this.#block(purchase, 'duplicate', 'Duplicate of a recent purchase with the same merchant, item, and amount.');
       } else if (outcome === 'approval') {
         purchase.reason = reason;
+        purchase.expiresAt = new Date(Date.parse(purchase.at) + APPROVAL_DAYS * DAY_MS).toISOString();
         this.#record('guard', `Held ${item} for your approval: ${reason}`, purchase);
       } else {
         purchase.cleared = true;
@@ -343,9 +411,17 @@ export class Guard {
       this.#record('agent', `Submitted final checkout: ${item} for ${money(amountCents)} at ${merchantName(merchantId)}.`, purchase);
       const problem = this.#accessProblem(token)
         ?? this.#mismatchProblem(purchase, final)
-        ?? this.#rulesProblem(purchase);
-      if (problem) this.#block(purchase, problem.code, problem.reason);
-      else this.#charge(purchase, purchase.customerApproved ? 'You approved this purchase.' : 'Within your rules.');
+        ?? this.#rulesProblem(purchase, amountCents);
+      if (problem) {
+        this.#block(purchase, problem.code, problem.reason);
+      } else {
+        let reason = purchase.customerApproved ? 'You approved this purchase.' : 'Within your rules.';
+        if (amountCents < purchase.amountCents) {
+          reason = `${reason} Final price was lower than the ${money(purchase.amountCents)} quoted.`;
+          this.#applyLowerPrice(purchase, amountCents);
+        }
+        this.#charge(purchase, reason);
+      }
       result = purchase;
     } else {
       // Nothing is cleared for this charge, so it is recorded separately and the original stays as it was.
@@ -375,6 +451,7 @@ export class Guard {
   }
 
   decide(id, approve) {
+    this.checkApprovals();
     const purchase = this.purchases.find((p) => p.id === id);
     if (!purchase) throw new GuardError('Purchase not found.', 404);
     if (purchase.status !== 'pending') throw new GuardError('This purchase has already been decided.', 409);
@@ -409,7 +486,7 @@ export class Guard {
       throw new GuardError('This purchase already has a refund request.', 409);
     }
 
-    const now = new Date();
+    const now = new Date(this.#nowMs());
     const charged = purchase.status === 'completed';
     const refund = {
       id: randomUUID(),
@@ -448,7 +525,7 @@ export class Guard {
 
     const nextIndex = refund.stageIndex + 1;
     const next = refund.timeline[nextIndex];
-    const now = new Date().toISOString();
+    const now = this.#nowIso();
     const purchase = this.purchases.find((p) => p.id === refund.purchaseId);
 
     if (next.id === 'resolved') {

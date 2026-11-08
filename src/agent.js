@@ -1,11 +1,11 @@
-import { MERCHANTS } from './guard.js';
+import { MERCHANTS } from './catalog.js';
 
 export const SHOPPING_LIST = [
   { merchantId: 'grocer', item: 'Weekly groceries', amountCents: 4250 },
   { merchantId: 'pharmacy', item: 'Allergy medicine', amountCents: 1825 },
   { merchantId: 'electronics', item: 'USB charger', amountCents: 2499 },
   { merchantId: 'grocer', item: 'Bulk pantry restock', amountCents: 7800 },
-  { merchantId: 'pharmacy', item: 'Blood pressure monitor', amountCents: 4500 },
+  { merchantId: 'pharmacy', item: 'Blood pressure monitor', amountCents: 4500, final: { amountCents: 4200 } },
   { merchantId: 'grocer', item: 'Holiday food hamper', amountCents: 12000 },
 ];
 
