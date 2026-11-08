@@ -1,7 +1,7 @@
-import { MockAgent } from './agent.js';
+import { MockAgent } from '../engine/agent.js';
 import { APPROVAL_EXPIRY_DAYS, demoAgent } from './connections.js';
-import { GuardError } from './errors.js';
-import { Guard } from './guard.js';
+import { GuardError } from '../engine/errors.js';
+import { Guard } from '../engine/guard.js';
 
 // One guard and mock agent per customer, loaded from SQLite the first time they are needed.
 export class Wallets {

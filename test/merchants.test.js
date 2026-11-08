@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CATEGORY_ICONS, DEMO_AGENTS, MERCHANTS } from '../src/catalog.js';
+import { CATEGORY_ICONS, DEMO_AGENTS, MERCHANTS } from '../engine/catalog.js';
 import { createGuard } from '../testing/harness.js';
 
 function activeGuard() {

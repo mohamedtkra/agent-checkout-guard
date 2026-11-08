@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { MockAgent, UNCLEARED_CHARGE } from '../src/agent.js';
+import { MockAgent, UNCLEARED_CHARGE } from '../engine/agent.js';
 import { Wallets } from '../src/wallets.js';
 import { createGuard, createStore, createUser, linkAgent } from '../testing/harness.js';
 

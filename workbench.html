@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prototype Workbench</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="workbench/styles.css">
+</head>
+<body>
+  <p class="banner">Demo - no real accounts or payments</p>
+  <header class="page-head">
+    <h1>Prototype Workbench</h1>
+    <p>Compose an Agent Checkout Guard prototype from feature blocks, then tap through it. The agents are simulated, and this demo is not connected to or affiliated with OpenAI or Google.</p>
+  </header>
+
+  <div class="layout">
+    <section class="panel" aria-labelledby="setup-title">
+      <h2 id="setup-title">Setup</h2>
+      <p class="muted">Changing the setup restarts the prototype.</p>
+
+      <label class="field">Scenario
+        <select id="scenario"></select>
+      </label>
+
+      <fieldset class="field">
+        <legend>Agents</legend>
+        <div id="agents"></div>
+      </fieldset>
+
+      <label class="field">Credit limit
+        <span class="money"><span>$</span><input id="credit-limit" type="number" min="0" step="1" inputmode="decimal"></span>
+      </label>
+      <label class="field" id="allocation-field">Agent allocation
+        <span class="money"><span>$</span><input id="allocation" type="number" min="0" step="1" inputmode="decimal"></span>
+      </label>
+      <label class="field" id="approval-field">Approval amount
+        <span class="money"><span>$</span><input id="approval" type="number" min="0" step="1" inputmode="decimal"></span>
+      </label>
+
+      <fieldset class="field" id="shares-field">
+        <legend>Split by agent</legend>
+        <p class="muted">Leave empty to share the allocation. Once one is set, an agent left empty can't spend.</p>
+        <div id="shares"></div>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>Feature blocks</legend>
+        <div id="features"></div>
+      </fieldset>
+      <div id="warnings" class="warnings" role="status"></div>
+    </section>
+
+    <section class="stage" aria-label="Live prototype">
+      <div class="phone">
+        <p class="phone-banner">Demo - no real accounts or payments</p>
+        <div id="phone-screen" class="phone-screen"></div>
+        <nav id="phone-tabs" class="phone-tabs" aria-label="Prototype screens"></nav>
+      </div>
+      <div class="controls">
+        <button id="run" class="button primary" type="button">Run scenario</button>
+        <button id="next-day" class="button" type="button">Simulate next day</button>
+        <button id="overreach" class="button" type="button">Simulate agent overreach</button>
+        <button id="reset" class="button quiet" type="button">Reset prototype</button>
+      </div>
+      <p id="stage-hint" class="muted center" role="status"></p>
+    </section>
+
+    <section class="panel" aria-labelledby="spec-title">
+      <h2 id="spec-title">Mini spec</h2>
+      <div class="spec-actions">
+        <button id="copy-link" class="button" type="button">Copy share link</button>
+        <button id="export-spec" class="button" type="button">Export spec</button>
+      </div>
+      <p id="copy-status" class="muted" role="status"></p>
+      <article id="spec"></article>
+    </section>
+  </div>
+
+  <footer class="page-foot"><a href="https://github.com/mohamedtkra/agent-checkout-guard">Source on GitHub</a></footer>
+  <script type="module" src="workbench/app.js"></script>
+</body>
+</html>

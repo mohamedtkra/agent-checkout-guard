@@ -8,6 +8,10 @@ Agent Checkout Guard is a customer-facing web app that lets a person give an AI 
 
 **Demo only: no real accounts or payments.** It uses mock merchants and test card tokens, and it never asks for a real password or card number. The ChatGPT and Gemini agents are simulated. This project is not connected to or affiliated with OpenAI or Google.
 
+## Try it online
+
+**[Open the Prototype Workbench](https://mohamedtkra.github.io/agent-checkout-guard/workbench.html)**. Pick a scenario, switch feature blocks on or off, and tap through a live prototype in your browser. Nothing to install.
+
 ## Documentation
 
 | Document | Purpose |
@@ -49,5 +53,7 @@ npm test
 9. On a paid purchase, use **View purchase details** to see the item picture, its details, and the merchant's information.
 10. On **Agents**, connect a second agent, then try **Edit permissions** or **Revoke**. Revoking one agent leaves the others working.
 11. Use **Reset demo** on **Shop** to clear purchases and rules. Connected agents and the audit log are kept.
+
+The guard logic lives in `engine/` and is shared by this app and the workbench (`workbench.html`, `workbench/`).
 
 Data is stored in `data/`, which is not committed. To start over completely, stop the server and delete that folder. The server only accepts connections from this computer.

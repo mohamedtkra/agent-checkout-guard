@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { MockAgent } from '../src/agent.js';
-import { evaluate, GuardError } from '../src/guard.js';
+import { MockAgent } from '../engine/agent.js';
+import { evaluate, GuardError } from '../engine/guard.js';
 import { approveAll, createGuard } from '../testing/harness.js';
 
 const RULES = { budgetCents: 10000, approvalCents: 5000 };

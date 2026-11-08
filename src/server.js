@@ -2,12 +2,12 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { UNCLEARED_CHARGE } from './agent.js';
+import { UNCLEARED_CHARGE } from '../engine/agent.js';
 import { Auth, SESSION_MS } from './auth.js';
-import { ASSET_PATHS, DEMO_AGENTS } from './catalog.js';
+import { ASSET_PATHS, DEMO_AGENTS } from '../engine/catalog.js';
 import { Connections, demoAgent, loadSigner } from './connections.js';
 import { openDatabase } from './db.js';
-import { GuardError } from './errors.js';
+import { GuardError } from '../engine/errors.js';
 import { Wallets } from './wallets.js';
 
 const HOST = '127.0.0.1';

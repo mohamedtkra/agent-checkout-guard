@@ -21,6 +21,19 @@ A running log of significant project decisions. Add new entries at the top, and 
 
 ## Log
 
+## 009: The guard's capabilities are composable feature blocks
+
+- **Date:** 2026-11-08
+- **Status:** Accepted
+
+**Context:** The guard's capabilities apply to more than one use case, and each new use case should not need its own build. Showing them to others also needed a page that runs without a server.
+
+**Decision:** The guard's capabilities are composable feature blocks, so one engine can generate prototypes for many use cases. The blocks are step-up verification and consent, approval with expiry and reminders, credit allocation and checkout holds, split by agent, report and refund tracking, and overreach detection and auto-pause. The guard logic lives in a browser-safe shared engine in `engine/`, used by both the app and a static Prototype Workbench. Merchants, products, and agents are supplied as a catalog, so a scenario can bring its own. The full app runs with every block on.
+
+**Alternatives considered:** A separate copy of the logic for the workbench would drift from the app. A hosted backend for the workbench would add accounts and running costs that a demo doesn't need.
+
+**Consequences:** A change to the engine reaches the app and the workbench together. Blocks can depend on each other, as split by agent depends on credit allocation. The checks at final checkout for a changed price, merchant, or item, and for duplicates, are part of the core and are not a block. The workbench keeps its state in the browser, its step-up codes are simulated on the page, and its consent records are not signed.
+
 ## 008: Categories are informational only, and holds apply only to executed purchases
 
 - **Date:** 2026-11-08

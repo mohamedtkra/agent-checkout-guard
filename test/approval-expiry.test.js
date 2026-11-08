@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { MockAgent } from '../src/agent.js';
-import { ASSET_PATHS, MERCHANTS, productFor } from '../src/catalog.js';
+import { MockAgent } from '../engine/agent.js';
+import { ASSET_PATHS, MERCHANTS, productFor } from '../engine/catalog.js';
 import { createGuard } from '../testing/harness.js';
 
 const RULES = { budgetCents: 10000, approvalCents: 5000 };

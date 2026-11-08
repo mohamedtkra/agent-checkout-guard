@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
-import { GuardError } from './errors.js';
+import { GuardError } from '../engine/errors.js';
 
 export const SESSION_MS = 30 * 60 * 1000;
 const CODE_MS = 5 * 60 * 1000;

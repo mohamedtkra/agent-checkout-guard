@@ -82,6 +82,12 @@ Other non-goals: TBD
 | R41 | The execution check is atomic, so simultaneous purchases cannot exceed a limit. | TBD |
 | R42 | The home screen shows a meter of allocation, spent, on hold, and remaining, plus a list of open holds with their expiry dates. | TBD |
 | R43 | The approval screen warns: "Approval doesn't reserve funds; this can still fail if your limit is used up first." | TBD |
+| R44 | The guard logic runs from one shared engine in both the app and the browser. | TBD |
+| R45 | A static Prototype Workbench, hosted on GitHub Pages, lets a visitor toggle six feature blocks: step-up verification and consent, approval with 3-day expiry and reminders, credit allocation and checkout holds, split by agent, report and refund tracking, and overreach detection and auto-pause. | TBD |
+| R46 | The visitor picks a scenario template (Travel, Restaurants, Subscriptions, Small business, or Family card) and agents, and sets the credit limit, agent allocation, and approval amount. | TBD |
+| R47 | A phone-frame prototype generated from those settings can be tapped through, shows only enabled features, and offers Run scenario and Simulate next day. | TBD |
+| R48 | An auto-generated mini spec covers the problem, enabled features, rules, user flow, and key metrics, with Copy share link (setup encoded in the URL) and Export spec (a Markdown download). | TBD |
+| R49 | The workbench shows the "Demo - no real accounts or payments" banner and is linked from the README. | TBD |
 
 ## Key flow
 
@@ -91,6 +97,16 @@ Other non-goals: TBD
 4. The purchase is blocked if it breaks a rule, held for phone approval if it is above the approval amount, and otherwise allowed.
 5. Every agent action appears in the live log.
 6. The customer can revoke access at any point.
+
+## Prototype Workbench flow
+
+See [decision 009](decisions.md).
+
+1. A visitor opens the workbench and picks a scenario template and agents.
+2. The visitor sets the credit limit, agent allocation, and approval amount, and switches feature blocks on or off.
+3. The phone-frame prototype rebuilds from those settings on the shared engine, showing only enabled features.
+4. The visitor connects an agent, uses Run scenario, approves purchases, reads the log, and reports a problem.
+5. The mini spec updates with the setup. The visitor can copy a share link or export the spec as Markdown.
 
 ## Connect an agent flow
 

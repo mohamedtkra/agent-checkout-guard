@@ -1,7 +1,7 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, randomUUID, sign, verify } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { DEMO_AGENTS } from './catalog.js';
-import { GuardError } from './errors.js';
+import { DEMO_AGENTS } from '../engine/catalog.js';
+import { GuardError } from '../engine/errors.js';
 
 export const APPROVAL_EXPIRY_DAYS = 3;
 

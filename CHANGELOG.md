@@ -40,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Category icons on purchases, and Spending by category and Spending by agent views.
 - A warning on the approval screen that approval doesn't reserve funds.
 - Decision 008, and a metric for approved purchases declined at checkout.
+- Prototype Workbench: a static page with scenario templates, feature blocks, a phone-frame live prototype, an auto-generated mini spec, share links, and Markdown export, published on GitHub Pages.
+- Decision 009, and workbench requirements in the PRD.
 
 ### Changed
 
@@ -55,6 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Agents are now named "ChatGPT (OpenAI)" and "Gemini (Google)", with simple initial badges instead of icons.
 - Holds are now placed only when a purchase is executed. Intents, including those waiting for approval, reserve nothing, and limits are checked at checkout.
 - The agent allocation can now be split by company.
+- The guard logic moved to a browser-safe shared engine in `engine/`, used by both the app and the workbench.
 
 ### Removed
 

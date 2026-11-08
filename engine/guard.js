@@ -1,8 +1,18 @@
-import { randomUUID } from 'node:crypto';
-import { CATEGORY_ICONS, DEMO_AGENTS, MERCHANTS, merchantFor, productFor } from './catalog.js';
+import { DEFAULT_CATALOG } from './catalog.js';
 import { GuardError } from './errors.js';
 
 export { GuardError };
+
+// The guard's capabilities are composable blocks. The full app runs with every block on.
+export const FEATURE_IDS = ['stepUpConsent', 'approvals', 'creditHolds', 'splitByAgent', 'refunds', 'overreach'];
+
+export function normalizeFeatures(features = {}) {
+  const enabled = Object.fromEntries(FEATURE_IDS.map((id) => [id, features[id] !== false]));
+  if (!enabled.creditHolds) enabled.splitByAgent = false;
+  return enabled;
+}
+
+const randomUUID = () => globalThis.crypto.randomUUID();
 
 // budgetCents is the agent allocation: how much of the customer's available credit agents may use.
 export const DEFAULT_RULES = {
@@ -44,9 +54,7 @@ const PERSISTED_FIELDS = ['rules', 'agentShares', 'credit', 'purchases', 'refund
 const isCents = (value) => Number.isSafeInteger(value) && value >= 0;
 const money = (cents) => `$${(cents / 100).toFixed(2)}`;
 const shortMoney = (cents) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
-const merchantName = (id) => merchantFor(id).name;
 const dayWord = (days) => (days === 1 ? '1 day' : `${days} days`);
-const agentById = (id) => DEMO_AGENTS.find((a) => a.id === id);
 
 export function rulesError(rules) {
   if (!rules || typeof rules !== 'object') return 'Rules are missing.';
@@ -75,8 +83,10 @@ export class Guard {
   #persist;
   #appendAudit;
 
-  constructor({ connections, saved = null, log = [], persist = () => {}, appendAudit = () => 0 }) {
+  constructor({ connections, saved = null, log = [], persist = () => {}, appendAudit = () => 0, catalog = DEFAULT_CATALOG, features }) {
     this.connections = connections;
+    this.catalog = catalog;
+    this.features = normalizeFeatures(features);
     this.#persist = persist;
     this.#appendAudit = appendAudit;
     this.#clear();
@@ -166,8 +176,8 @@ export class Guard {
   }
 
   #open({ merchantId, item, amountCents, overreach = false }, connection = null) {
-    const merchant = merchantFor(merchantId);
-    const product = productFor(item);
+    const merchant = this.catalog.merchantFor(merchantId);
+    const product = this.catalog.productFor(item);
     const purchase = {
       id: randomUUID(),
       at: this.#nowIso(),
@@ -175,7 +185,7 @@ export class Guard {
       merchantName: merchant.name,
       merchantLogo: merchant.logo,
       category: merchant.category,
-      categoryIcon: CATEGORY_ICONS[merchant.category],
+      categoryIcon: this.catalog.categoryIcons[merchant.category],
       connectionId: connection?.id ?? null,
       agentId: connection?.agentId ?? null,
       agentName: connection?.shortName ?? 'Unknown agent',
@@ -268,7 +278,7 @@ export class Guard {
       return { code: 'mismatch', reason: `Final price ${money(final.amountCents)} is higher than the ${money(purchase.amountCents)} ${agreed}.` };
     }
     if (final.merchantId !== purchase.merchantId) {
-      return { code: 'mismatch', reason: `Final merchant ${merchantName(final.merchantId)} is not the ${purchase.merchantName} ${agreed}.` };
+      return { code: 'mismatch', reason: `Final merchant ${this.catalog.merchantFor(final.merchantId).name} is not the ${purchase.merchantName} ${agreed}.` };
     }
     if (final.item !== purchase.item) {
       return { code: 'mismatch', reason: `Final item ${final.item} is not the ${purchase.item} ${agreed}.` };
@@ -281,8 +291,8 @@ export class Guard {
     const results = [evaluate(this.rules, amountCents), evaluate(limits, amountCents)];
     const blocked = results.find((result) => result.outcome === 'block');
     if (blocked) return { problem: { code: 'rules', reason: blocked.reason } };
-    const held = results.find((result) => result.outcome === 'approval');
-    return { needsApproval: Boolean(held), reason: held?.reason ?? results[0].reason };
+    const held = this.features.approvals ? results.find((result) => result.outcome === 'approval') : undefined;
+    return { needsApproval: Boolean(held), reason: held?.reason ?? 'Within your rules.' };
   }
 
   // Whether the money is there, counting everything already charged or on hold.
@@ -291,17 +301,19 @@ export class Guard {
       code,
       reason: `Declined at checkout: ${label} ${shortMoney(limit)} ${code === 'consent' ? 'consent budget' : code === 'agent_share' ? 'share' : code === 'credit' ? 'available credit' : 'agent limit'} has ${shortMoney(Math.max(0, limit - used))} left.`,
     });
-    const used = this.#sumCents(COMMITTED_STATUSES, purchase.id);
-    if (used + amountCents > this.rules.budgetCents) return declined('allocation', 'your', this.rules.budgetCents, used);
-    if (used + amountCents > this.#availableCredit()) return declined('credit', 'your', this.#availableCredit(), used);
+    if (this.features.creditHolds) {
+      const used = this.#sumCents(COMMITTED_STATUSES, purchase.id);
+      if (used + amountCents > this.rules.budgetCents) return declined('allocation', 'your', this.rules.budgetCents, used);
+      if (used + amountCents > this.#availableCredit()) return declined('credit', 'your', this.#availableCredit(), used);
 
-    if (Object.keys(this.agentShares).length > 0) {
-      if (!Object.hasOwn(this.agentShares, purchase.agentId)) {
-        return { code: 'agent_share', reason: `Declined at checkout: ${purchase.agentName} has no share of your ${shortMoney(this.rules.budgetCents)} agent limit.` };
+      if (this.features.splitByAgent && Object.keys(this.agentShares).length > 0) {
+        if (!Object.hasOwn(this.agentShares, purchase.agentId)) {
+          return { code: 'agent_share', reason: `Declined at checkout: ${purchase.agentName} has no share of your ${shortMoney(this.rules.budgetCents)} agent limit.` };
+        }
+        const share = this.agentShares[purchase.agentId];
+        const agentUsed = this.#sumBy('agentId', purchase.agentId, COMMITTED_STATUSES, purchase.id);
+        if (agentUsed + amountCents > share) return declined('agent_share', `${purchase.agentName}'s`, share, agentUsed);
       }
-      const share = this.agentShares[purchase.agentId];
-      const agentUsed = this.#sumBy('agentId', purchase.agentId, COMMITTED_STATUSES, purchase.id);
-      if (agentUsed + amountCents > share) return declined('agent_share', `${purchase.agentName}'s`, share, agentUsed);
     }
 
     const connectionUsed = this.#sumBy('connectionId', purchase.connectionId, COMMITTED_STATUSES, purchase.id);
@@ -326,12 +338,13 @@ export class Guard {
 
   // Runs after money moves and shares no decision with the pre-charge checks.
   #auditCharge(purchase) {
+    if (!this.features.overreach) return;
     const problems = [];
     const committed = this.#sumCents(COMMITTED_STATUSES, purchase.id);
     if (!purchase.cleared) problems.push('the guard never cleared it');
-    if (committed + purchase.amountCents > this.rules.budgetCents) problems.push('it goes over your agent limit');
-    if (committed + purchase.amountCents > this.#availableCredit()) problems.push('it goes over your available credit');
-    if (purchase.amountCents > this.rules.approvalCents && !purchase.customerApproved) problems.push('it needed your approval');
+    if (this.features.creditHolds && committed + purchase.amountCents > this.rules.budgetCents) problems.push('it goes over your agent limit');
+    if (this.features.creditHolds && committed + purchase.amountCents > this.#availableCredit()) problems.push('it goes over your available credit');
+    if (this.features.approvals && purchase.amountCents > this.rules.approvalCents && !purchase.customerApproved) problems.push('it needed your approval');
     const limits = purchase.connectionId && this.connections.limits(purchase.connectionId, this.#nowMs());
     if (limits && this.#sumBy('connectionId', purchase.connectionId, COMMITTED_STATUSES, purchase.id) + purchase.amountCents > limits.budgetCents) {
       problems.push('it goes over this agent\'s budget');
@@ -400,7 +413,7 @@ export class Guard {
   }
 
   #spendingByCategory() {
-    const rows = Object.entries(CATEGORY_ICONS).map(([category, icon]) => ({
+    const rows = Object.entries(this.catalog.categoryIcons).map(([category, icon]) => ({
       category,
       icon,
       spentCents: this.#sumBy('category', category, ['completed']),
@@ -410,8 +423,8 @@ export class Guard {
   }
 
   #spendingByAgent(connections, remainingCents) {
-    const split = Object.keys(this.agentShares).length > 0;
-    return DEMO_AGENTS.map((agent) => {
+    const split = this.features.splitByAgent && Object.keys(this.agentShares).length > 0;
+    return this.catalog.agents.map((agent) => {
       const spentCents = this.#sumBy('agentId', agent.id, ['completed']);
       const heldCents = this.#sumBy('agentId', agent.id, ['held']);
       const allocationCents = split ? (this.agentShares[agent.id] ?? 0) : this.rules.budgetCents;
@@ -457,8 +470,9 @@ export class Guard {
       holds,
       spendingByAgent: this.#spendingByAgent(connections, remainingCents),
       spendingByCategory: this.#spendingByCategory(),
-      merchants: MERCHANTS,
-      demoAgents: DEMO_AGENTS,
+      merchants: this.catalog.merchants,
+      demoAgents: this.catalog.agents,
+      features: this.features,
       connections,
       refundReasons: REFUND_REASONS,
       now: this.#nowIso(),
@@ -512,15 +526,19 @@ export class Guard {
     this.#validateShares(shares, rules.budgetCents);
     this.agentShares = { ...shares };
     this.rules = { budgetCents: rules.budgetCents, approvalCents: rules.approvalCents };
-    const split = Object.entries(this.agentShares).map(([id, cents]) => `${agentById(id).shortName} ${money(cents)}`).join(', ');
+    const split = Object.entries(this.agentShares).map(([id, cents]) => `${this.#agent(id).shortName} ${money(cents)}`).join(', ');
     this.#record('customer', `Set rules: ${money(this.rules.budgetCents)} agent allocation${split ? ` (split: ${split})` : ''}, approval above ${money(this.rules.approvalCents)}.`);
     this.#notify();
+  }
+
+  #agent(id) {
+    return this.catalog.agents.find((a) => a.id === id);
   }
 
   #validateShares(shares, allocationCents) {
     if (!shares || typeof shares !== 'object' || Array.isArray(shares)) throw new GuardError('Agent shares are not valid.');
     const entries = Object.entries(shares);
-    if (!entries.every(([id, cents]) => agentById(id) && isCents(cents))) {
+    if (!entries.every(([id, cents]) => this.#agent(id) && isCents(cents))) {
       throw new GuardError('Agent shares must be valid amounts for known agents.');
     }
     const total = entries.reduce((sum, [, cents]) => sum + cents, 0);
@@ -599,7 +617,7 @@ export class Guard {
     let result;
 
     if (purchase?.status === 'authorized') {
-      this.#record('agent', `${purchase.agentName} submitted final checkout: ${item} for ${money(amountCents)} at ${merchantName(merchantId)}.`, purchase);
+      this.#record('agent', `${purchase.agentName} submitted final checkout: ${item} for ${money(amountCents)} at ${this.catalog.merchantFor(merchantId).name}.`, purchase);
       let problem = auth.problem;
       if (!problem && auth.connection.id !== purchase.connectionId) {
         problem = { code: 'wrong_token', reason: 'This purchase was cleared for a different agent.' };
@@ -613,7 +631,8 @@ export class Guard {
           reason = `${reason} Final price was lower than the ${money(purchase.amountCents)} quoted.`;
           this.#applyLowerPrice(purchase, amountCents);
         }
-        this.#placeHold(purchase, reason);
+        if (this.features.creditHolds) this.#placeHold(purchase, reason);
+        else this.#charge(purchase, reason);
       }
       result = purchase;
     } else {
@@ -677,6 +696,7 @@ export class Guard {
   }
 
   reportProblem(purchaseId, { reason, note = '' }) {
+    if (!this.features.refunds) throw new GuardError('Report and refund tracking is not enabled.', 403);
     const purchase = this.purchases.find((p) => p.id === purchaseId);
     if (!purchase) throw new GuardError('Purchase not found.', 404);
     if (!Object.hasOwn(REFUND_REASONS, reason)) throw new GuardError('Choose a reason.');

@@ -96,8 +96,19 @@ export const PRODUCTS = {
   'Designer watch': { description: 'Stainless steel analog wristwatch.', color: 'Silver', size: '40 mm', image: '/products/watch.svg' },
 };
 
-export const merchantFor = (id) => MERCHANTS.find((m) => m.id === id) ?? UNKNOWN_MERCHANT;
-export const productFor = (item) => (Object.hasOwn(PRODUCTS, item) ? PRODUCTS[item] : PLACEHOLDER_PRODUCT);
+// A catalog is everything the guard needs to describe purchases, so other use cases can supply their own.
+export function createCatalog({ agents, merchants, categoryIcons, products, unknownMerchant = UNKNOWN_MERCHANT, placeholderProduct = PLACEHOLDER_PRODUCT }) {
+  return {
+    agents,
+    merchants,
+    categoryIcons,
+    merchantFor: (id) => merchants.find((m) => m.id === id) ?? unknownMerchant,
+    productFor: (item) => (Object.hasOwn(products, item) ? products[item] : placeholderProduct),
+  };
+}
+
+export const DEFAULT_CATALOG = createCatalog({ agents: DEMO_AGENTS, merchants: MERCHANTS, categoryIcons: CATEGORY_ICONS, products: PRODUCTS });
+export const { merchantFor, productFor } = DEFAULT_CATALOG;
 
 export const ASSET_PATHS = [
   ...DEMO_AGENTS.map((a) => a.icon),

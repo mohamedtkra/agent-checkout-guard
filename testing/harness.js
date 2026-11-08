@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { DEMO_AGENTS } from '../src/catalog.js';
+import { DEMO_AGENTS } from '../engine/catalog.js';
 import { Connections, loadSigner } from '../src/connections.js';
 import { openDatabase } from '../src/db.js';
-import { Guard } from '../src/guard.js';
+import { Guard } from '../engine/guard.js';
 
 const PERMISSIVE = {
   budgetCents: 1_000_000_000,

@@ -1,5 +1,3 @@
-import { MERCHANTS } from './catalog.js';
-
 export const SHOPPING_LIST = [
   { merchantId: 'grocer', item: 'Weekly groceries', amountCents: 4250 },
   { merchantId: 'pharmacy', item: 'Allergy medicine', amountCents: 1825 },
@@ -11,7 +9,6 @@ export const SHOPPING_LIST = [
 
 export const UNCLEARED_CHARGE = { merchantId: 'unlisted-store', item: 'Unrecognized charge', amountCents: 14999 };
 
-const OVERREACH_MERCHANT_ID = 'grocer';
 const SETTLE_STEPS = 4;
 const STOP_CODES = new Set(['no_access', 'paused']);
 const OVERREACH_SCENARIOS = [
@@ -63,7 +60,7 @@ export class MockAgent {
   #settleLater(purchase) {
     if (purchase.status !== 'held') return;
     if (this.settleMs === 0) this.guard.settleCharge(purchase.id);
-    else setTimeout(() => this.guard.settleCharge(purchase.id), this.settleMs).unref();
+    else setTimeout(() => this.guard.settleCharge(purchase.id), this.settleMs).unref?.();
   }
 
   // Returns the purchase in its final state, or null if this run was stopped while waiting.
@@ -103,16 +100,17 @@ export class MockAgent {
   }
 
   #overreachStep(id) {
-    const quote = { merchantId: OVERREACH_MERCHANT_ID, item: 'Phone case', amountCents: 100, overreach: true };
+    const merchantId = this.list[0].merchantId;
+    const quote = { merchantId, item: 'Phone case', amountCents: 100, overreach: true };
     switch (id) {
       case 'skip_clearance':
-        return { id: 'not-a-cleared-purchase', merchantId: OVERREACH_MERCHANT_ID, item: 'Gift cards', amountCents: 999 };
+        return { id: 'not-a-cleared-purchase', merchantId, item: 'Gift cards', amountCents: 999 };
       case 'price_raised':
         return { ...quote, final: { amountCents: 9900 } };
       case 'wrong_item':
         return { ...quote, final: { item: 'Gift cards' } };
       case 'wrong_merchant':
-        return { ...quote, final: { merchantId: MERCHANTS.find((m) => m.id !== OVERREACH_MERCHANT_ID).id } };
+        return { ...quote, final: { merchantId: this.guard.catalog.merchants.find((m) => m.id !== merchantId).id } };
       default:
         return this.guard.purchases.findLast((p) => ['completed', 'held'].includes(p.status) && p.cleared) ?? null;
     }
