@@ -6,12 +6,17 @@
 
 | Metric | Definition | Baseline | Target |
 | --- | --- | --- | --- |
-| Unauthorized purchases stopped | Share of test or real purchases that break a rule and are blocked or held for approval | TBD | TBD |
-| False blocks | Share of allowed purchases that are wrongly blocked or held | TBD | TBD |
-| Added checkout time | Extra time the guard adds to a purchase that needs no approval | TBD | TBD |
-| Approval response time | Time between an approval request and the person's answer | TBD | TBD |
-| Decision coverage | Share of attempted purchases with a recorded decision and reason | TBD | TBD |
+| Rule violations stopped | Share of test purchases that break the budget or merchant rules and are blocked | TBD | TBD |
+| Approval enforcement | Share of test purchases above the approval amount that wait for the customer's decision | TBD | TBD |
+| False blocks | Share of test purchases within the rules that are wrongly blocked or held | TBD | TBD |
+| Added checkout time | Extra time the rule check adds to a purchase that needs no approval | TBD | TBD |
+| Approval response time | Time between an approval request and the customer's answer on their phone | TBD | TBD |
+| Live log completeness | Share of agent actions that appear in the live log | TBD | TBD |
+| Live log delay | Time between an agent action and its appearance in the live log | TBD | TBD |
+| Revocation enforcement | Number of purchases completed after access is revoked | TBD | TBD |
 
 ## Measurement plan
+
+All measurements use mock merchants and test card tokens, with no real payments.
 
 TBD: define how each metric is collected, and where test scenarios come from.

@@ -14,3 +14,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Replaced the assumed product description in the README and one-pager with the confirmed one.
+- Updated the PRD and metrics to match the confirmed product definition.
