@@ -21,6 +21,8 @@
     <p id="meter-text" class="meter-text"></p>
   </header>
 
+  <div id="alert" class="alert" role="alert" hidden></div>
+
   <main>
     <section id="tab-rules" class="screen" aria-labelledby="nav-rules">
       <h2>Your rules</h2>
@@ -46,6 +48,10 @@
       <h2>Shopping agent</h2>
       <p id="agent-status" class="lead" role="status"></p>
       <button id="run-agent" class="button primary wide" type="button">Send agent shopping</button>
+      <h3>Safety tests</h3>
+      <p class="muted">Each tap tries a different out-of-bounds purchase.</p>
+      <button id="simulate-overreach" class="button wide spaced" type="button">Simulate agent overreach</button>
+      <button id="simulate-uncleared" class="button wide spaced" type="button">Simulate charge that slips past the guard</button>
       <h3>Purchases</h3>
       <ul id="purchases" class="cards"></ul>
       <button id="reset" class="button quiet wide" type="button">Reset demo</button>
@@ -62,6 +68,34 @@
       <p class="lead"><span id="live-state">Connecting…</span> Newest first.</p>
       <ol id="log" class="log"></ol>
     </section>
+
+    <section id="tab-report" class="screen" aria-labelledby="report-title" hidden>
+      <button id="report-back" class="back" type="button">‹ Back to activity</button>
+      <h2 id="report-title">Report a problem</h2>
+      <p id="report-summary" class="lead"></p>
+      <form id="report-form">
+        <fieldset class="field">
+          <legend>What went wrong?</legend>
+          <div id="report-reasons"></div>
+        </fieldset>
+        <label class="field" for="report-note">Add a note (optional)
+          <textarea id="report-note" rows="3" maxlength="500"></textarea>
+        </label>
+        <button id="report-submit" class="button primary wide" type="submit">Submit refund request</button>
+      </form>
+    </section>
+
+    <section id="tab-refunds" class="screen" aria-labelledby="nav-refunds" hidden>
+      <h2>Refunds</h2>
+      <p class="lead">Mock processing. No real money moves.</p>
+      <ul id="refunds" class="cards"></ul>
+    </section>
+
+    <section id="tab-refund" class="screen" aria-labelledby="refund-title" hidden>
+      <button id="refund-back" class="back" type="button">‹ All refunds</button>
+      <h2 id="refund-title">Refund request</h2>
+      <div id="refund-detail"></div>
+    </section>
   </main>
 
   <nav class="tabs" aria-label="Screens">
@@ -69,6 +103,7 @@
     <button id="nav-agent" type="button" data-tab="agent">Agent</button>
     <button id="nav-approvals" type="button" data-tab="approvals">Approve<span id="approval-badge" class="badge" hidden></span></button>
     <button id="nav-activity" type="button" data-tab="activity">Activity</button>
+    <button id="nav-refunds" type="button" data-tab="refunds">Refunds</button>
   </nav>
 
   <div id="toast" class="toast" role="status" hidden></div>

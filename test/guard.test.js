@@ -12,8 +12,18 @@ function activeGuard(rules = RULES) {
   return guard;
 }
 
-const buy = (guard, amountCents, merchantId = 'grocer') =>
-  guard.attempt({ token: guard.agentToken(), merchantId, item: 'Item', amountCents });
+const checkout = (guard, purchase) => guard.checkout({
+  token: guard.agentToken(),
+  purchaseId: purchase.id,
+  merchantId: purchase.merchantId,
+  item: purchase.item,
+  amountCents: purchase.amountCents,
+});
+
+function buy(guard, amountCents, merchantId = 'grocer') {
+  const purchase = guard.attempt({ token: guard.agentToken(), merchantId, item: 'Item', amountCents });
+  return purchase.status === 'authorized' ? checkout(guard, purchase) : purchase;
+}
 
 test('a purchase exactly at the approval amount is allowed', () => {
   assert.equal(evaluate(RULES, 0, 'grocer', 5000).outcome, 'allow');
@@ -61,7 +71,9 @@ test('a pending purchase holds budget so later purchases cannot overspend', () =
 
 test('approving charges the purchase and denying does not', () => {
   const guard = activeGuard();
-  guard.decide(buy(guard, 6000).id, true);
+  const approved = guard.decide(buy(guard, 6000).id, true);
+  assert.equal(guard.snapshot().spentCents, 0);
+  assert.equal(checkout(guard, approved).status, 'completed');
   assert.equal(guard.snapshot().spentCents, 6000);
 
   const second = activeGuard();
@@ -84,7 +96,7 @@ test('a purchase cannot be decided twice', () => {
   const purchase = buy(guard, 6000);
   guard.decide(purchase.id, true);
   assert.throws(() => guard.decide(purchase.id, true), (error) => error.status === 409);
-  assert.equal(guard.snapshot().spentCents, 6000);
+  assert.equal(guard.snapshot().heldCents, 6000);
 });
 
 test('revoking blocks the old token and cancels pending purchases', () => {

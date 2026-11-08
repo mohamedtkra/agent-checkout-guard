@@ -12,6 +12,28 @@ export const DEFAULT_RULES = {
   approvalCents: 5000,
 };
 
+export const REFUND_REASONS = {
+  overcharged: 'Charged more than approved',
+  unauthorized: "Didn't authorize",
+  wrong_item: 'Wrong item',
+  never_arrived: 'Never arrived',
+  other: 'Other',
+};
+
+// Mock estimates: days after submission that each stage is expected to be reached.
+const REFUND_STAGES = [
+  { id: 'submitted', label: 'Submitted', days: 0 },
+  { id: 'under_review', label: 'Under review', days: 2 },
+  { id: 'merchant_contacted', label: 'Merchant contacted', days: 5 },
+  { id: 'resolved', label: 'Refunded or Declined', days: 10 },
+];
+
+const DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
+const MAX_NOTE_LENGTH = 500;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const HOLD_STATUSES = ['pending', 'authorized'];
+const COMMITTED_STATUSES = ['completed', ...HOLD_STATUSES];
+
 export class GuardError extends Error {
   constructor(message, status = 400) {
     super(message);
@@ -65,6 +87,9 @@ export class Guard {
     this.rules = structuredClone(DEFAULT_RULES);
     this.purchases = [];
     this.log = [];
+    this.refunds = [];
+    this.alerts = [];
+    this.paused = false;
     this.agentStatus = { running: false, message: 'Ready to shop.' };
   }
 
@@ -78,8 +103,15 @@ export class Guard {
     for (const listener of this.#listeners) listener(state);
   }
 
-  #record(actor, message) {
-    this.log.push({ id: randomUUID(), at: new Date().toISOString(), actor, message });
+  #record(actor, message, purchase = null, flagged = false) {
+    this.log.push({
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      actor,
+      message,
+      purchaseId: purchase?.id ?? null,
+      flagged,
+    });
   }
 
   #maskedToken() {
@@ -92,6 +124,26 @@ export class Guard {
       .reduce((total, p) => total + p.amountCents, 0);
   }
 
+  #open({ merchantId, item, amountCents, overreach = false }) {
+    const purchase = {
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      merchantId,
+      merchantName: merchantName(merchantId),
+      item,
+      amountCents,
+      status: 'pending',
+      reason: '',
+      code: null,
+      cleared: false,
+      customerApproved: false,
+      flagged: false,
+      overreach,
+    };
+    this.purchases.push(purchase);
+    return purchase;
+  }
+
   #settle(purchase, status, reason) {
     purchase.status = status;
     purchase.reason = reason;
@@ -100,22 +152,107 @@ export class Guard {
     this.#waiters.delete(purchase.id);
   }
 
+  #block(purchase, code, reason) {
+    purchase.code = code;
+    this.#settle(purchase, 'blocked', reason);
+    this.#record('guard', `Blocked ${purchase.item}: ${reason}`, purchase);
+  }
+
+  #accessProblem(token) {
+    if (!token || token !== this.#token) return { code: 'no_access', reason: 'The agent does not have access.' };
+    if (this.paused) return { code: 'paused', reason: 'The agent is paused after a flagged charge.' };
+    return null;
+  }
+
+  #isDuplicate(purchase) {
+    const now = Date.parse(purchase.at);
+    return this.purchases.some((p) => p.id !== purchase.id
+      && COMMITTED_STATUSES.includes(p.status)
+      && p.merchantId === purchase.merchantId
+      && p.item === purchase.item
+      && p.amountCents === purchase.amountCents
+      && now - Date.parse(p.at) < DUPLICATE_WINDOW_MS);
+  }
+
+  #mismatchProblem(purchase, final) {
+    const agreed = purchase.customerApproved ? 'you approved' : 'the guard cleared';
+    if (final.amountCents !== purchase.amountCents) {
+      const direction = final.amountCents > purchase.amountCents ? 'is higher than' : 'differs from';
+      return { code: 'mismatch', reason: `Final price ${money(final.amountCents)} ${direction} the ${money(purchase.amountCents)} ${agreed}.` };
+    }
+    if (final.merchantId !== purchase.merchantId) {
+      return { code: 'mismatch', reason: `Final merchant ${merchantName(final.merchantId)} is not the ${purchase.merchantName} ${agreed}.` };
+    }
+    if (final.item !== purchase.item) {
+      return { code: 'mismatch', reason: `Final item ${final.item} is not the ${purchase.item} ${agreed}.` };
+    }
+    return null;
+  }
+
+  #rulesProblem(purchase) {
+    const committed = this.#sumCents(COMMITTED_STATUSES, purchase.id);
+    const { outcome, reason } = evaluate(this.rules, committed, purchase.merchantId, purchase.amountCents);
+    if (outcome === 'block') return { code: 'rules', reason };
+    if (outcome === 'approval' && !purchase.customerApproved) {
+      return { code: 'approval_required', reason: `${reason} Your approval is required.` };
+    }
+    return null;
+  }
+
   #charge(purchase, reason) {
     this.#settle(purchase, 'completed', reason);
-    this.#record('payment', `Charged ${money(purchase.amountCents)} to test token ${this.#maskedToken()} at ${purchase.merchantName}. No real money moved.`);
+    this.#record('payment', `Charged ${money(purchase.amountCents)} to test token ${this.#maskedToken()} at ${purchase.merchantName}. No real money moved.`, purchase);
+    this.#auditCharge(purchase);
+  }
+
+  // Runs after money moves and shares no decision with the pre-charge checks.
+  #auditCharge(purchase) {
+    const problems = [];
+    const committed = this.#sumCents(COMMITTED_STATUSES, purchase.id);
+    if (!purchase.cleared) problems.push('the guard never cleared it');
+    if (!this.rules.allowedMerchantIds.includes(purchase.merchantId)) problems.push('the merchant is not on your allowed list');
+    if (committed + purchase.amountCents > this.rules.budgetCents) problems.push('it goes over your budget');
+    if (purchase.amountCents > this.rules.approvalCents && !purchase.customerApproved) problems.push('it needed your approval');
+    if (problems.length === 0) return;
+
+    const summary = `${money(purchase.amountCents)} at ${purchase.merchantName} went through outside your rules: ${problems.join(', ')}.`;
+    purchase.flagged = true;
+    purchase.reason = summary;
+    this.#record('guard', `Flagged charge: ${summary}`, purchase, true);
+    this.alerts.push({ id: randomUUID(), at: new Date().toISOString(), purchaseId: purchase.id, message: summary });
+    this.#pause();
+  }
+
+  #pause() {
+    if (this.paused) return;
+    this.paused = true;
+    this.agentStatus = { running: this.agentStatus.running, message: 'Paused after a flagged charge.' };
+    this.#record('guard', 'Paused the agent automatically after a flagged charge.', null, true);
+    this.#cancelHeld('The agent was paused after a flagged charge.');
+  }
+
+  #cancelHeld(reason) {
+    for (const purchase of this.purchases.filter((p) => HOLD_STATUSES.includes(p.status))) {
+      this.#settle(purchase, 'canceled', reason);
+      this.#record('guard', `Canceled ${purchase.item} at ${purchase.merchantName}: ${reason}`, purchase);
+    }
   }
 
   snapshot() {
     const spentCents = this.#sumCents(['completed']);
-    const heldCents = this.#sumCents(['pending']);
+    const heldCents = this.#sumCents(HOLD_STATUSES);
     return {
       rules: this.rules,
       merchants: MERCHANTS,
+      refundReasons: REFUND_REASONS,
       access: { active: this.#token !== null, token: this.#maskedToken() },
+      paused: this.paused,
+      alerts: this.alerts,
       spentCents,
       heldCents,
       remainingCents: Math.max(0, this.rules.budgetCents - spentCents - heldCents),
       purchases: this.purchases,
+      refunds: this.refunds,
       log: this.log,
       agent: this.agentStatus,
     };
@@ -123,6 +260,11 @@ export class Guard {
 
   agentToken() {
     return this.#token;
+  }
+
+  getPurchase(id) {
+    const purchase = this.purchases.find((p) => p.id === id);
+    return purchase && { ...purchase };
   }
 
   setRules(rules) {
@@ -149,47 +291,79 @@ export class Guard {
     if (!this.#token) return;
     this.#token = null;
     this.#record('customer', 'Revoked the agent\'s access. The test token no longer works.');
-    for (const purchase of this.purchases.filter((p) => p.status === 'pending')) {
-      this.#settle(purchase, 'canceled', 'Access was revoked before approval.');
-      this.#record('guard', `Canceled ${purchase.item} at ${purchase.merchantName}: access was revoked.`);
-    }
+    this.#cancelHeld('Access was revoked before the charge.');
     this.#notify();
   }
 
-  // Every agent payment passes through here. A stale or missing token never reaches the rules.
-  attempt({ token, merchantId, item, amountCents }) {
-    const purchase = {
-      id: randomUUID(),
-      at: new Date().toISOString(),
-      merchantId,
-      merchantName: merchantName(merchantId),
-      item,
-      amountCents,
-      status: 'pending',
-      reason: '',
-      code: null,
-    };
-    this.purchases.push(purchase);
-    this.#record('agent', `Tried to buy ${item} for ${money(amountCents)} at ${purchase.merchantName}.`);
+  resumeAgent() {
+    if (!this.paused) return;
+    this.paused = false;
+    this.alerts = [];
+    this.agentStatus = { running: this.agentStatus.running, message: 'Resumed. Ready to shop.' };
+    this.#record('customer', 'Reviewed the flagged charge and resumed the agent.');
+    this.#notify();
+  }
 
-    if (!token || token !== this.#token) {
-      purchase.code = 'no_access';
-      this.#settle(purchase, 'blocked', 'The agent does not have access.');
-      this.#record('guard', `Blocked ${item}: the agent does not have access.`);
+  // First gate: decides whether the agent may proceed to checkout. No money moves here.
+  attempt({ token, merchantId, item, amountCents, overreach = false }) {
+    const purchase = this.#open({ merchantId, item, amountCents, overreach });
+    this.#record('agent', `Tried to buy ${item} for ${money(amountCents)} at ${purchase.merchantName}.`, purchase);
+
+    const problem = this.#accessProblem(token);
+    if (problem) {
+      this.#block(purchase, problem.code, problem.reason);
     } else {
-      const committed = this.#sumCents(['completed', 'pending'], purchase.id);
+      const committed = this.#sumCents(COMMITTED_STATUSES, purchase.id);
       const { outcome, reason } = evaluate(this.rules, committed, merchantId, amountCents);
       if (outcome === 'block') {
-        this.#settle(purchase, 'blocked', reason);
-        this.#record('guard', `Blocked ${item}: ${reason}`);
+        this.#block(purchase, 'rules', reason);
+      } else if (this.#isDuplicate(purchase)) {
+        this.#block(purchase, 'duplicate', 'Duplicate of a recent purchase with the same merchant, item, and amount.');
       } else if (outcome === 'approval') {
         purchase.reason = reason;
-        this.#record('guard', `Held ${item} for your approval: ${reason}`);
+        this.#record('guard', `Held ${item} for your approval: ${reason}`, purchase);
       } else {
-        this.#record('guard', `Allowed ${item}: ${reason}`);
-        this.#charge(purchase, reason);
+        purchase.cleared = true;
+        purchase.status = 'authorized';
+        purchase.reason = reason;
+        this.#record('guard', `Cleared ${item}: ${reason}`, purchase);
       }
     }
+    this.#notify();
+    return { ...purchase };
+  }
+
+  // Final gate: the only way a cleared purchase becomes a charge.
+  checkout({ token, purchaseId, merchantId, item, amountCents, overreach = false }) {
+    const final = { merchantId, item, amountCents, overreach };
+    const purchase = this.purchases.find((p) => p.id === purchaseId);
+    let result;
+
+    if (purchase?.status === 'authorized') {
+      this.#record('agent', `Submitted final checkout: ${item} for ${money(amountCents)} at ${merchantName(merchantId)}.`, purchase);
+      const problem = this.#accessProblem(token)
+        ?? this.#mismatchProblem(purchase, final)
+        ?? this.#rulesProblem(purchase);
+      if (problem) this.#block(purchase, problem.code, problem.reason);
+      else this.#charge(purchase, purchase.customerApproved ? 'You approved this purchase.' : 'Within your rules.');
+      result = purchase;
+    } else {
+      // Nothing is cleared for this charge, so it is recorded separately and the original stays as it was.
+      result = this.#open(final);
+      this.#record('agent', `Tried to charge ${item} for ${money(amountCents)} at ${result.merchantName}.`, result);
+      if (purchase?.status === 'completed') this.#block(result, 'duplicate', 'This purchase has already been charged.');
+      else this.#block(result, 'not_cleared', 'This charge was not cleared by the guard.');
+    }
+    this.#notify();
+    return { ...result };
+  }
+
+  // A settled charge from the mock processor that never passed through checkout.
+  recordUnclearedCharge({ merchantId, item, amountCents }) {
+    const purchase = this.#open({ merchantId, item, amountCents });
+    this.#settle(purchase, 'completed', 'This charge did not pass through the guard.');
+    this.#record('payment', `Mock processor reported a ${money(amountCents)} charge at ${purchase.merchantName} that the guard never cleared. No real money moved.`, purchase);
+    this.#auditCharge(purchase);
     this.#notify();
     return { ...purchase };
   }
@@ -207,21 +381,93 @@ export class Guard {
 
     if (!approve) {
       this.#settle(purchase, 'denied', 'You denied this purchase.');
-      this.#record('customer', `Denied ${purchase.item} at ${purchase.merchantName}.`);
+      this.#record('customer', `Denied ${purchase.item} at ${purchase.merchantName}.`, purchase);
     } else {
+      this.#record('customer', `Approved ${purchase.item} at ${purchase.merchantName}.`, purchase);
+      purchase.customerApproved = true;
       // The rules may have changed while this purchase waited, so check them again.
-      const committed = this.#sumCents(['completed', 'pending'], purchase.id);
-      const { outcome, reason } = evaluate(this.rules, committed, purchase.merchantId, purchase.amountCents);
-      this.#record('customer', `Approved ${purchase.item} at ${purchase.merchantName}.`);
-      if (outcome === 'block') {
-        this.#settle(purchase, 'blocked', reason);
-        this.#record('guard', `Blocked ${purchase.item} after approval: ${reason}`);
+      const problem = this.#rulesProblem(purchase);
+      if (problem) {
+        this.#block(purchase, problem.code, problem.reason);
       } else {
-        this.#charge(purchase, 'You approved this purchase.');
+        purchase.cleared = true;
+        this.#settle(purchase, 'authorized', 'You approved this purchase.');
       }
     }
     this.#notify();
     return { ...purchase };
+  }
+
+  reportProblem(purchaseId, { reason, note = '' }) {
+    const purchase = this.purchases.find((p) => p.id === purchaseId);
+    if (!purchase) throw new GuardError('Purchase not found.', 404);
+    if (!Object.hasOwn(REFUND_REASONS, reason)) throw new GuardError('Choose a reason.');
+    if (typeof note !== 'string' || note.length > MAX_NOTE_LENGTH) {
+      throw new GuardError(`Notes can be up to ${MAX_NOTE_LENGTH} characters.`);
+    }
+    if (this.refunds.some((r) => r.purchaseId === purchaseId)) {
+      throw new GuardError('This purchase already has a refund request.', 409);
+    }
+
+    const now = new Date();
+    const charged = purchase.status === 'completed';
+    const refund = {
+      id: randomUUID(),
+      ref: `RF-${1001 + this.refunds.length}`,
+      purchaseId,
+      item: purchase.item,
+      merchantName: purchase.merchantName,
+      amountCents: charged ? purchase.amountCents : 0,
+      charged,
+      reason,
+      reasonLabel: REFUND_REASONS[reason],
+      note: note.trim(),
+      outcome: null,
+      stageIndex: 0,
+      createdAt: now.toISOString(),
+      resolvedAt: null,
+      expectedResolveAt: new Date(now.getTime() + REFUND_STAGES.at(-1).days * DAY_MS).toISOString(),
+      expectedDays: REFUND_STAGES.at(-1).days,
+      timeline: REFUND_STAGES.map((stage, index) => ({
+        id: stage.id,
+        label: stage.label,
+        at: index === 0 ? now.toISOString() : null,
+        expectedAt: new Date(now.getTime() + stage.days * DAY_MS).toISOString(),
+      })),
+    };
+    this.refunds.push(refund);
+    this.#record('refund', `Refund request ${refund.ref} submitted for ${purchase.item}: ${refund.reasonLabel}.`, purchase);
+    this.#notify();
+    return { ...refund };
+  }
+
+  advanceRefund(id, outcome) {
+    const refund = this.refunds.find((r) => r.id === id);
+    if (!refund) throw new GuardError('Refund request not found.', 404);
+    if (refund.outcome) throw new GuardError('This refund request is already resolved.', 409);
+
+    const nextIndex = refund.stageIndex + 1;
+    const next = refund.timeline[nextIndex];
+    const now = new Date().toISOString();
+    const purchase = this.purchases.find((p) => p.id === refund.purchaseId);
+
+    if (next.id === 'resolved') {
+      if (!['refunded', 'declined'].includes(outcome)) throw new GuardError('Choose Refunded or Declined.');
+      refund.outcome = refund.charged ? outcome : 'declined';
+      refund.resolvedAt = now;
+      next.label = refund.outcome === 'refunded' ? 'Refunded' : 'Declined';
+      if (refund.outcome === 'refunded') {
+        purchase.status = 'refunded';
+        purchase.reason = `Refunded through ${refund.ref}.`;
+      } else if (!refund.charged) {
+        refund.declineReason = 'Nothing was charged for this purchase, so there is nothing to refund.';
+      }
+    }
+    refund.stageIndex = nextIndex;
+    next.at = now;
+    this.#record('refund', `Refund request ${refund.ref}: ${next.label}.`, purchase);
+    this.#notify();
+    return { ...refund };
   }
 
   setAgentStatus(running, message, logMessage) {

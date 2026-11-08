@@ -21,6 +21,19 @@ A running log of significant project decisions. Add new entries at the top, and 
 
 ## Log
 
+## 003: Block mismatches, auto-pause on flagged charges, and model refunds on card disputes
+
+- **Date:** 2026-11-08
+- **Status:** Accepted
+
+**Context:** Customers need protection at three points: before a charge, when a charge goes through that should not have, and after a purchase goes wrong.
+
+**Decision:** The guard blocks rather than warns. Before any charge, the server re-checks the final amount, merchant, and item against the rules and against what was cleared or approved. Any mismatch or duplicate is blocked and logged with its reason. The agent pauses automatically on any flagged charge, and only the customer can resume it. Refund requests mirror a card dispute process: Submitted, Under review, Merchant contacted, then Refunded or Declined, with a date for each step and an expected time to resolve.
+
+**Alternatives considered:** Warning the customer and letting the charge continue would leave money at risk until they responded. Flagging a charge without pausing would let the agent keep spending while something is wrong. A simple refund button would give customers no visibility into progress.
+
+**Consequences:** A harmless change, such as a lower final price, is also blocked, so false blocks need watching. One flagged charge stops all agent purchases until the customer acts. In the prototype, processing is mock, stages are advanced by hand, and resolution estimates are placeholders.
+
 ## 001: Prototype behavior for open PRD questions
 
 - **Date:** 2026-11-08

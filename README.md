@@ -41,6 +41,9 @@ npm test
 2. On **Agent**, send the agent shopping. It tries six purchases at three mock merchants.
 3. When a purchase needs your decision, the app opens **Approve**.
 4. Watch **Activity**, or use **Revoke access** at any point.
-5. Use **Reset demo** on **Agent** to start again.
+5. On **Agent**, use **Simulate agent overreach** to watch the guard block an out-of-bounds purchase. Each tap tries a different one.
+6. Use **Simulate charge that slips past the guard** to see a charge flagged in red, the agent paused, and the customer alerted.
+7. On **Activity**, use **Report a problem** on a purchase, then follow the request on **Refunds** with **Simulate next step**.
+8. Use **Reset demo** on **Agent** to start again.
 
 Data is kept in memory, so restarting the server clears it. The server only accepts connections from this computer.

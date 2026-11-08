@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { MockAgent } from './agent.js';
+import { MockAgent, UNCLEARED_CHARGE } from './agent.js';
 import { Guard, GuardError } from './guard.js';
 
 const HOST = '127.0.0.1';
@@ -52,6 +52,8 @@ async function handlePost(req, res, pathname) {
   assertSameOrigin(req);
   const body = await readJson(req);
   const decision = pathname.match(/^\/api\/purchases\/([\w-]+)\/decision$/);
+  const report = pathname.match(/^\/api\/purchases\/([\w-]+)\/report$/);
+  const refundStep = pathname.match(/^\/api\/refunds\/([\w-]+)\/advance$/);
 
   if (pathname === '/api/rules') {
     guard.setRules(body);
@@ -60,8 +62,18 @@ async function handlePost(req, res, pathname) {
     else guard.revokeAccess();
   } else if (pathname === '/api/agent/run') {
     if (!agent.run()) throw new GuardError('The agent is already shopping.', 409);
+  } else if (pathname === '/api/agent/overreach') {
+    if (!agent.simulateOverreach()) throw new GuardError('The agent is already shopping.', 409);
+  } else if (pathname === '/api/agent/resume') {
+    guard.resumeAgent();
+  } else if (pathname === '/api/simulate/uncleared-charge') {
+    guard.recordUnclearedCharge(UNCLEARED_CHARGE);
   } else if (decision) {
     guard.decide(decision[1], body.approve === true);
+  } else if (report) {
+    guard.reportProblem(report[1], body);
+  } else if (refundStep) {
+    guard.advanceRefund(refundStep[1], body.outcome);
   } else if (pathname === '/api/reset') {
     agent.stop();
     guard.reset();

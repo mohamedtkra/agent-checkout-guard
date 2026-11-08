@@ -14,9 +14,12 @@
 | Live log completeness | Share of agent actions that appear in the live log | TBD | TBD |
 | Live log delay | Time between an agent action and its appearance in the live log | TBD | TBD |
 | Revocation enforcement | Number of purchases completed after access is revoked | TBD | TBD |
+| Overreach attempts blocked | Share of out-of-bounds purchase attempts, simulated or real, that the guard blocks before any charge | TBD | TBD |
+| Time to refund | Time from a refund request being submitted to it reaching Refunded | TBD | TBD |
+| Refund rate | Share of charged purchases that end in a Refunded request | TBD | TBD |
 
 ## Measurement plan
 
-All measurements use mock merchants and test card tokens, with no real payments.
+All measurements use mock merchants and test card tokens, with no real payments. Refund stages are advanced by hand in the prototype, so time to refund only becomes meaningful once real processing times exist.
 
 TBD: define how each metric is collected, and where test scenarios come from.
