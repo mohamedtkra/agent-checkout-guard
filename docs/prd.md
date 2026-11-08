@@ -4,7 +4,7 @@
 
 ## Summary
 
-Agent Checkout Guard is a customer-facing web app that lets a person give an AI shopping agent permission to pay with a tokenized card, within rules they set: a budget, allowed merchants, and approval required above a set amount. The customer approves purchases from their phone, sees a live log of everything the agent did, and can revoke access at any time.
+Agent Checkout Guard is a customer-facing web app that lets a person give an AI shopping agent permission to pay with a tokenized card, within rules they set: a budget and approval required above a set amount. The customer approves purchases from their phone, sees a live log of everything the agent did, and can revoke access at any time.
 
 The product uses mock merchants and test card tokens only, with no real payments.
 
@@ -34,7 +34,6 @@ Other non-goals: TBD
 | User | Need |
 | --- | --- |
 | Busy consumers | An agent that handles routine purchases without risking overspending or fraud |
-| Merchants (mock in the prototype) | Control over which agent companies can buy from them |
 
 ## Requirements
 
@@ -42,9 +41,9 @@ Other non-goals: TBD
 | --- | --- | --- |
 | R1 | A customer can give an AI shopping agent permission to pay with a tokenized card. | TBD |
 | R2 | A customer can set a budget for the agent. | TBD |
-| R3 | A customer can set which merchants the agent may buy from. | TBD |
+| R3 | Merchants are identified only by name and category. There is no merchant allow-list. | TBD |
 | R4 | A customer can set an amount above which a purchase requires their approval. | TBD |
-| R5 | A purchase that breaks the budget or merchant rules is blocked. | TBD |
+| R5 | A purchase is declined only when it breaks a rule (overall budget, approval amount, consent scope, or expiry) or would go over the agent allocation or available credit. The safety checks in R12 and R13 still apply. | TBD |
 | R6 | A purchase above the approval amount does not complete until the customer approves it. | TBD |
 | R7 | A customer can approve or reject a purchase from their phone. | TBD |
 | R8 | A customer can see a live log of everything the agent did. | TBD |
@@ -65,27 +64,28 @@ Other non-goals: TBD
 | R23 | Testers can simulate the next day to see reminders and expiry without waiting. | TBD |
 | R24 | Each mock merchant has an original, invented brand name and a simple SVG logo, shown on purchase cards, the approval screen, and the activity log. | TBD |
 | R25 | Each purchase shows an original product illustration or placeholder, name, short description, price, and color and size where they apply. The approval screen shows all of this. | TBD |
-| R26 | Merchants belong to categories, and a customer can allow a whole category or individual merchants. | TBD |
-| R27 | Each merchant chooses which agent companies it accepts, and a purchase is blocked if the merchant does not accept the agent's company. | TBD |
+| R26 | Categories are labels only. Each purchase shows its category icon, and a Spending by category view breaks down spending. There are no category rules or limits. | TBD |
+| R27 | A Spending by agent view shows each agent's allocation, spent, on hold, and remaining. | TBD |
 | R28 | After a purchase is made, the customer can see a picture of the item, its details, and the merchant's information. | TBD |
 | R29 | A customer signs in to a demo account with an email and a one-time 6-digit code shown on screen, with no real email or SMS. Sessions expire after 30 minutes. | TBD |
 | R30 | Users, sessions, agent connections, consents, tokens, and the audit log are stored in SQLite and survive restarts. | TBD |
-| R31 | A customer can connect three clearly labeled demo agents with original icons. Connecting requires a step-up check with a second one-time code. | TBD |
-| R32 | Before linking, a consent screen shows exactly what the agent may do (budget, allowed merchants, approval amount, approval expiry, and connection expiry date) with Allow and Cancel. An AP2-style signed consent record is stored. | TBD |
+| R31 | A customer can connect simulated agents named "ChatGPT (OpenAI)" and "Gemini (Google)", shown with a simple badge of the initial and a distinct color rather than official logos. Connecting requires a step-up check with a second one-time code. Sign-in and consent screens stay the bank's own and never imitate OpenAI's or Google's login pages. | TBD |
+| R32 | Before linking, a consent screen shows exactly what the agent may do (budget, approval amount, approval expiry, and connection expiry date) with Allow and Cancel. An AP2-style signed consent record is stored. | TBD |
 | R33 | Each connected agent gets its own test card token, valid only within its consent. The guard checks the token, the consent, and the rules on every purchase. | TBD |
 | R34 | A Connected agents page lists each agent with its permissions, connection date, last activity, and spend so far, with Edit permissions and Revoke. Revoking one agent does not affect the others. | TBD |
 | R35 | A "Demo - no real accounts or payments" banner appears on every screen, and the product never asks for real passwords or card numbers. | TBD |
 | R36 | The demo account has a mock credit limit, current balance, and available credit. | TBD |
-| R37 | On the Rules screen, the customer sets how much of their available credit agents may use in total, and can optionally split it per connected agent. The allocation can never exceed available credit. | TBD |
-| R38 | An open purchase intent, pending approval or about to charge, places a hold for its amount immediately. | TBD |
-| R39 | A new intent is accepted only if charged amounts, open holds, and the new amount fit within the agent allocation, available credit, and the agent's share if split. Otherwise it is blocked with the reason. | TBD |
-| R40 | A hold is released when its intent is denied, expires, or is revoked. A charge for less releases the difference. Limits are checked again at final charge. | TBD |
-| R41 | The hold check is atomic, so simultaneous intents cannot exceed a limit. | TBD |
+| R37 | On the Rules screen, the customer sets how much of their available credit agents may use in total, and can optionally split it by company. The allocation can never exceed available credit. | TBD |
+| R38 | An intent, including one waiting for approval, reserves nothing. A hold is placed only when a purchase is executed. | TBD |
+| R39 | At execution, a purchase goes through only if charged amounts, active holds, and this purchase fit within the agent allocation, available credit, and the agent's share if split. Otherwise it is declined with the reason. | TBD |
+| R40 | A hold becomes a charge when the purchase settles, and is released if it expires or the agent is revoked or paused first. | TBD |
+| R41 | The execution check is atomic, so simultaneous purchases cannot exceed a limit. | TBD |
 | R42 | The home screen shows a meter of allocation, spent, on hold, and remaining, plus a list of open holds with their expiry dates. | TBD |
+| R43 | The approval screen warns: "Approval doesn't reserve funds; this can still fail if your limit is used up first." | TBD |
 
 ## Key flow
 
-1. The customer gives the agent permission to pay with a tokenized card and sets a budget, allowed merchants, and an approval amount.
+1. The customer gives the agent permission to pay with a tokenized card and sets a budget and an approval amount.
 2. The agent attempts a purchase from a mock merchant.
 3. The purchase is checked against the customer's rules.
 4. The purchase is blocked if it breaks a rule, held for phone approval if it is above the approval amount, and otherwise allowed.
@@ -106,13 +106,15 @@ See [decision 005](decisions.md).
 
 ## Credit allocation and holds flow
 
-See [decision 007](decisions.md).
+See decisions [007 and 008](decisions.md).
 
-1. The customer sets an agent allocation from their available credit, for example $500 of $3,800, and can split it per agent.
-2. When an agent opens a purchase intent, the guard checks charged amounts, open holds, and the new amount against every limit in one step.
-3. If it fits, a hold is placed immediately. If not, it is blocked with the reason, for example "Blocked: would exceed your $500 agent limit ($430 already used or on hold)".
-4. At final charge, the limits are checked again and the hold becomes spend. A lower final price releases the difference.
-5. If the intent is denied, expires, or is revoked, the hold is released.
+1. The customer sets an agent allocation from their available credit, for example $500 of $3,800, and can split it by company, for example ChatGPT $300 and Gemini $200.
+2. An agent opens a purchase intent. It reserves nothing, even while waiting for approval.
+3. When the purchase is executed, the guard checks charged amounts, active holds, and this purchase against every limit in one step.
+4. If it fits, a hold is placed. If not, it is declined with the reason, for example "Declined at checkout: your $500 agent limit has $40 left."
+5. When the purchase settles, the hold becomes spend. If it expires or the agent is revoked or paused first, the hold is released.
+
+**Trade-off:** an approved intent can fail at checkout if other purchases use up the limit first.
 
 ## Approval expiry flow
 

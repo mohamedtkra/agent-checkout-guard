@@ -56,15 +56,20 @@
         <div class="card">
           <div class="meter large" aria-hidden="true"><span id="home-meter-spent" class="meter-spent"></span><span id="home-meter-held" class="meter-held"></span></div>
           <dl id="home-stats" class="stats"></dl>
-          <div id="home-shares"></div>
         </div>
         <h3>Open holds</h3>
         <ul id="holds" class="cards"></ul>
+        <p class="legend" aria-hidden="true"><span class="swatch spent"></span>Spent<span class="swatch held"></span>On hold</p>
+        <h3>Spending by agent</h3>
+        <ul id="spending-agents" class="cards"></ul>
+        <h3>Spending by category</h3>
+        <ul id="spending-categories" class="cards"></ul>
         <h2 id="agents-title" class="section-title">Connected agents</h2>
         <p class="lead">Each agent gets its own test card token and can only act within the permissions you sign.</p>
         <ul id="connections" class="cards"></ul>
-        <h3>Connect a demo agent</h3>
-        <ul id="available-agents" class="cards"></ul>
+        <h3>Connect an agent</h3>
+        <p class="muted">These agents are simulated for this demo. It is not connected to or affiliated with OpenAI or Google.</p>
+        <ul id="available-agents" class="cards spaced-list"></ul>
       </section>
 
       <section id="tab-connect" class="screen" aria-labelledby="connect-title" hidden>
@@ -89,10 +94,6 @@
           <label class="field" for="limit-approval">Ask me above
             <span class="money-input"><span>$</span><input id="limit-approval" type="number" inputmode="decimal" min="0" step="0.01" required></span>
           </label>
-          <fieldset class="field">
-            <legend>Allowed merchants</legend>
-            <div id="limit-merchants"></div>
-          </fieldset>
           <label class="field" for="limit-expiry">Connection expires on
             <input id="limit-expiry" class="text-input" type="date" required>
           </label>
@@ -120,7 +121,7 @@
             <span class="money-input"><span>$</span><input id="budget" type="number" inputmode="decimal" min="0" step="0.01" required></span>
           </label>
           <fieldset class="field">
-            <legend>Split per agent (optional)</legend>
+            <legend>Split by company (optional)</legend>
             <span class="hint">Leave every box empty to share the whole allocation. Once you enter a share, an agent left empty can't spend.</span>
             <div id="agent-shares"></div>
           </fieldset>
@@ -128,10 +129,6 @@
             <span class="hint">Purchases over this amount need your approval.</span>
             <span class="money-input"><span>$</span><input id="approval" type="number" inputmode="decimal" min="0" step="0.01" required></span>
           </label>
-          <fieldset class="field">
-            <legend>Allowed merchants</legend>
-            <div id="merchant-options"></div>
-          </fieldset>
           <button id="save-rules" class="button primary wide" type="submit">Save rules</button>
         </form>
       </section>
@@ -142,7 +139,6 @@
         <label class="field" for="shop-agent">Agent
           <select id="shop-agent"></select>
         </label>
-        <button id="open-merchants" class="link" type="button">Merchant settings (mock)</button>
         <button id="run-agent" class="button primary wide" type="button">Send agent shopping</button>
         <h3>Safety tests</h3>
         <p class="muted">Each tap tries a different out-of-bounds purchase.</p>
@@ -160,13 +156,6 @@
         <button id="purchase-back" class="back" type="button">‹ Back</button>
         <h2 id="purchase-title">Purchase details</h2>
         <div id="purchase-detail"></div>
-      </section>
-
-      <section id="tab-merchants" class="screen" aria-labelledby="merchants-title" hidden>
-        <button id="merchants-back" class="back" type="button">‹ Back to shop</button>
-        <h2 id="merchants-title">Merchant settings</h2>
-        <p class="lead">Mock merchant controls. Each merchant chooses which agent companies can buy from it.</p>
-        <ul id="merchant-settings" class="cards"></ul>
       </section>
 
       <section id="tab-approvals" class="screen" aria-labelledby="nav-approvals" hidden>

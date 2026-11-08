@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { MockAgent } from '../src/agent.js';
 import { evaluate, GuardError } from '../src/guard.js';
-import { createGuard } from '../testing/harness.js';
+import { approveAll, createGuard } from '../testing/harness.js';
 
-const RULES = { budgetCents: 10000, allowedMerchantIds: ['grocer'], approvalCents: 5000 };
+const RULES = { budgetCents: 10000, approvalCents: 5000 };
 
 function activeGuard(rules = RULES) {
   const guard = createGuard();
@@ -27,50 +27,41 @@ function buy(guard, amountCents, merchantId = 'grocer') {
 }
 
 test('a purchase exactly at the approval amount is allowed', () => {
-  assert.equal(evaluate(RULES, 0, 'grocer', 5000).outcome, 'allow');
+  assert.equal(evaluate(RULES, 5000).outcome, 'allow');
 });
 
 test('a purchase above the approval amount needs approval', () => {
-  assert.equal(evaluate(RULES, 0, 'grocer', 5001).outcome, 'approval');
-});
-
-test('a merchant off the allowed list is blocked', () => {
-  assert.equal(evaluate(RULES, 0, 'electronics', 100).outcome, 'block');
-});
-
-test('a purchase can use the budget exactly but not exceed it', () => {
-  assert.equal(evaluate(RULES, 9000, 'grocer', 1000).outcome, 'allow');
-  assert.equal(evaluate(RULES, 9000, 'grocer', 1001).outcome, 'block');
+  assert.equal(evaluate(RULES, 5001).outcome, 'approval');
 });
 
 test('purchases that cannot be checked are blocked', () => {
-  assert.equal(evaluate(null, 0, 'grocer', 100).outcome, 'block');
-  assert.equal(evaluate({ ...RULES, budgetCents: 'lots' }, 0, 'grocer', 100).outcome, 'block');
-  assert.equal(evaluate(RULES, 0, 'grocer', -100).outcome, 'block');
-  assert.equal(evaluate(RULES, 0, 'grocer', Number.NaN).outcome, 'block');
+  assert.equal(evaluate(null, 100).outcome, 'block');
+  assert.equal(evaluate({ ...RULES, budgetCents: 'lots' }, 100).outcome, 'block');
+  assert.equal(evaluate(RULES, -100).outcome, 'block');
+  assert.equal(evaluate(RULES, Number.NaN).outcome, 'block');
 });
 
 test('invalid rules are refused and the old rules stay in place', () => {
   const guard = activeGuard();
-  assert.throws(() => guard.setRules({ ...RULES, allowedMerchantIds: ['nowhere'] }), GuardError);
+  assert.throws(() => guard.setRules({ ...RULES, approvalCents: -1 }), GuardError);
   assert.deepEqual(guard.rules, RULES);
 });
 
-test('an allowed purchase is charged and counted against the budget', () => {
+test('any merchant can be bought from, whatever its category', () => {
+  const guard = activeGuard();
+  for (const merchantId of ['grocer', 'market', 'pharmacy', 'wellness', 'electronics', 'audio']) {
+    assert.equal(buy(guard, 100 + merchantId.length, merchantId).status, 'completed', merchantId);
+  }
+});
+
+test('an allowed purchase is charged and counted against the allocation', () => {
   const guard = activeGuard();
   assert.equal(buy(guard, 2000).status, 'completed');
   assert.equal(guard.snapshot().spentCents, 2000);
   assert.equal(guard.snapshot().remainingCents, 8000);
 });
 
-test('a pending purchase holds budget so later purchases cannot overspend', () => {
-  const guard = activeGuard();
-  assert.equal(buy(guard, 6000).status, 'pending');
-  assert.equal(buy(guard, 4001).status, 'blocked');
-  assert.equal(guard.snapshot().heldCents, 6000);
-});
-
-test('approving charges the purchase and denying does not', () => {
+test('approving does not charge the purchase, and denying ends it', () => {
   const guard = activeGuard();
   const approved = guard.decide(buy(guard, 6000).id, true);
   assert.equal(guard.snapshot().spentCents, 0);
@@ -84,20 +75,12 @@ test('approving charges the purchase and denying does not', () => {
   assert.equal(second.snapshot().heldCents, 0);
 });
 
-test('approval rechecks rules that changed while the purchase waited', () => {
-  const guard = activeGuard();
-  const purchase = buy(guard, 6000);
-  guard.setRules({ ...RULES, allowedMerchantIds: [] });
-  assert.equal(guard.decide(purchase.id, true).status, 'blocked');
-  assert.equal(guard.snapshot().spentCents, 0);
-});
-
 test('a purchase cannot be decided twice', () => {
   const guard = activeGuard();
   const purchase = buy(guard, 6000);
   guard.decide(purchase.id, true);
   assert.throws(() => guard.decide(purchase.id, true), (error) => error.status === 409);
-  assert.equal(guard.snapshot().heldCents, 6000);
+  assert.equal(guard.snapshot().spentCents, 0);
 });
 
 test('revoking blocks the old token and cancels pending purchases', () => {
@@ -130,7 +113,6 @@ test('every attempt appears in the log', () => {
   const messages = guard.log.map((entry) => entry.message).join('\n');
   assert.match(messages, /Thistlewick Pantry/);
   assert.match(messages, /Voltwren Gadgets/);
-  assert.match(messages, /Blocked Item/);
 });
 
 async function untilPending(guard) {
@@ -143,12 +125,11 @@ async function untilPending(guard) {
 test('the mock agent exercises each outcome with the default rules', async () => {
   const guard = createGuard();
   guard.grantAccess();
-  const run = new MockAgent(guard, { stepMs: 0 }).run(guard.agentToken());
-  guard.decide((await untilPending(guard)).id, true);
-  await run;
+  await approveAll(guard, new MockAgent(guard, { stepMs: 0 }).run(guard.agentToken()));
 
-  assert.deepEqual(guard.purchases.map((p) => p.status), ['completed', 'completed', 'blocked', 'completed', 'completed', 'blocked']);
-  assert.equal(guard.snapshot().spentCents, 18075);
+  assert.deepEqual(guard.purchases.map((p) => p.status), ['completed', 'completed', 'completed', 'completed', 'completed', 'blocked']);
+  assert.equal(guard.purchases[5].reason, 'Declined at checkout: your $500 agent limit has $294.26 left.');
+  assert.equal(guard.snapshot().spentCents, 20574);
   assert.equal(guard.agentStatus.running, false);
 });
 
@@ -162,7 +143,7 @@ test('the mock agent stops after access is revoked mid-run', async () => {
 
   assert.equal(guard.purchases.at(-1).code, 'no_access');
   assert.equal(guard.purchases.length, 5);
-  assert.equal(guard.snapshot().spentCents, 6075);
+  assert.equal(guard.snapshot().spentCents, 8574);
 });
 
 test('the mock agent cannot pay without access', async () => {

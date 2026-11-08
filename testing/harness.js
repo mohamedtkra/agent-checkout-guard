@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { DEMO_AGENTS, MERCHANTS } from '../src/catalog.js';
+import { DEMO_AGENTS } from '../src/catalog.js';
 import { Connections, loadSigner } from '../src/connections.js';
 import { openDatabase } from '../src/db.js';
 import { Guard } from '../src/guard.js';
@@ -7,7 +7,6 @@ import { Guard } from '../src/guard.js';
 const PERMISSIVE = {
   budgetCents: 1_000_000_000,
   approvalCents: 1_000_000_000,
-  allowedMerchantIds: MERCHANTS.map((m) => m.id),
 };
 
 export function createStore() {
@@ -46,6 +45,13 @@ class TestGuard extends Guard {
     this.user = user;
     this.currentToken = null;
     this.connectionId = null;
+    this.autoSettle = true;
+  }
+
+  // Most tests care about the charge, so executed purchases settle at once unless a test opts out.
+  checkout(details) {
+    const result = super.checkout(details);
+    return this.autoSettle && result.status === 'held' ? this.settleCharge(result.id) : result;
   }
 
   grantAccess(agentId, permissions) {
@@ -66,3 +72,13 @@ class TestGuard extends Guard {
 }
 
 export const createGuard = () => new TestGuard();
+
+// Plays a customer who approves everything the agent asks until its run ends.
+export async function approveAll(guard, run) {
+  let finished = false;
+  run.then(() => { finished = true; });
+  while (!finished) {
+    guard.purchases.filter((p) => p.status === 'pending').forEach((p) => guard.decide(p.id, true));
+    await new Promise((resolve) => { setTimeout(resolve, 1); });
+  }
+}

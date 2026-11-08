@@ -1,6 +1,6 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, randomUUID, sign, verify } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { AGENT_COMPANIES, DEMO_AGENTS, MERCHANTS } from './catalog.js';
+import { DEMO_AGENTS } from './catalog.js';
 import { GuardError } from './errors.js';
 
 export const APPROVAL_EXPIRY_DAYS = 3;
@@ -52,7 +52,6 @@ export class Connections {
   // AP2-style intent mandate: what the customer allowed, not a conformant AP2 credential.
   buildMandate({ consentId, version, connectionId, user, agentId, permissions, stepUp, issuedAt }) {
     const agent = demoAgent(agentId);
-    const allowedMerchants = MERCHANTS.filter((m) => permissions.allowedMerchantIds.includes(m.id)).map((m) => m.name);
     const budget = (permissions.budgetCents / 100).toFixed(2);
     const approval = (permissions.approvalCents / 100).toFixed(2);
     return {
@@ -64,17 +63,15 @@ export class Connections {
       issuedAt,
       connectionId,
       customer: { id: user.id, email: user.email },
-      agent: { id: agent.id, name: agent.name, company: AGENT_COMPANIES.find((c) => c.id === agent.companyId).name },
+      agent: { id: agent.id, name: agent.name, company: agent.company },
       permissions: {
         currency: 'USD',
         budgetCents: permissions.budgetCents,
-        allowedMerchantIds: permissions.allowedMerchantIds,
-        allowedMerchants,
         approvalCents: permissions.approvalCents,
         approvalExpiryDays: APPROVAL_EXPIRY_DAYS,
         connectionExpiresAt: permissions.connectionExpiresAt,
       },
-      statement: `${agent.name} may spend up to $${budget} in total at ${allowedMerchants.join(', ') || 'no merchants'}, asking for approval above $${approval}, until the end of ${permissions.connectionExpiresAt.slice(0, 10)} UTC.`,
+      statement: `${agent.name} may spend up to $${budget} in total, asking for approval above $${approval}, until the end of ${permissions.connectionExpiresAt.slice(0, 10)} UTC.`,
       stepUp,
     };
   }
@@ -172,7 +169,7 @@ export class Connections {
 
   #publicConnection(row) {
     const agent = demoAgent(row.agent_id);
-    return { id: row.id, agentId: agent.id, shortName: agent.shortName, companyId: agent.companyId };
+    return { id: row.id, agentId: agent.id, shortName: agent.shortName };
   }
 
   // Runs on every purchase: the token, then the connection, then the signed consent behind it.
@@ -212,7 +209,7 @@ export class Connections {
         name: agent.name,
         shortName: agent.shortName,
         icon: agent.icon,
-        companyName: AGENT_COMPANIES.find((c) => c.id === agent.companyId).name,
+        companyName: agent.company,
         status,
         connectedAt: row.connected_at,
         revokedAt: row.revoked_at,

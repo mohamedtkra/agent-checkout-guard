@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { AGENT_COMPANIES, DEFAULT_MERCHANT_AGENTS, DEMO_AGENTS, MERCHANTS, merchantFor, productFor } from './catalog.js';
+import { CATEGORY_ICONS, DEMO_AGENTS, MERCHANTS, merchantFor, productFor } from './catalog.js';
 import { GuardError } from './errors.js';
 
 export { GuardError };
@@ -7,7 +7,6 @@ export { GuardError };
 // budgetCents is the agent allocation: how much of the customer's available credit agents may use.
 export const DEFAULT_RULES = {
   budgetCents: 50000,
-  allowedMerchantIds: ['grocer', 'market', 'pharmacy', 'wellness'],
   approvalCents: 5000,
 };
 
@@ -36,41 +35,34 @@ const DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
 const MAX_NOTE_LENGTH = 500;
 const MAX_CONNECTION_DAYS = 365;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const HOLD_STATUSES = ['pending', 'authorized'];
-const COMMITTED_STATUSES = ['completed', ...HOLD_STATUSES];
-const PERSISTED_FIELDS = ['rules', 'agentShares', 'credit', 'merchantAgents', 'purchases', 'refunds', 'alerts', 'paused'];
+// Intents reserve nothing. Only an executed purchase, on hold or charged, uses up a limit.
+const INTENT_STATUSES = ['pending', 'authorized'];
+const COMMITTED_STATUSES = ['completed', 'held'];
+const OPEN_STATUSES = [...INTENT_STATUSES, 'held'];
+const PERSISTED_FIELDS = ['rules', 'agentShares', 'credit', 'purchases', 'refunds', 'alerts', 'paused'];
 
 const isCents = (value) => Number.isSafeInteger(value) && value >= 0;
 const money = (cents) => `$${(cents / 100).toFixed(2)}`;
 const shortMoney = (cents) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
 const merchantName = (id) => merchantFor(id).name;
 const dayWord = (days) => (days === 1 ? '1 day' : `${days} days`);
+const agentById = (id) => DEMO_AGENTS.find((a) => a.id === id);
 
 export function rulesError(rules) {
   if (!rules || typeof rules !== 'object') return 'Rules are missing.';
   if (!isCents(rules.budgetCents)) return 'Budget must be a valid amount.';
   if (!isCents(rules.approvalCents)) return 'Approval amount must be a valid amount.';
-  const ids = rules.allowedMerchantIds;
-  if (!Array.isArray(ids) || !ids.every((id) => MERCHANTS.some((m) => m.id === id))) {
-    return 'Allowed merchants must be known merchants.';
-  }
   return null;
 }
 
-// Anything that cannot be checked is blocked, so a purchase only proceeds on a positive result.
-export function evaluate(rules, committedCents, merchantId, amountCents, overLimitReason = 'Purchase would go over your budget.') {
-  if (rulesError(rules)) return { outcome: 'block', reason: 'Rules could not be checked.' };
-  if (!isCents(committedCents) || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
+// Decides what an intent needs. Whether the money is there is only checked at execution.
+export function evaluate(limits, amountCents) {
+  if (rulesError(limits)) return { outcome: 'block', reason: 'Rules could not be checked.' };
+  if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
     return { outcome: 'block', reason: 'Purchase amount could not be checked.' };
   }
-  if (!rules.allowedMerchantIds.includes(merchantId)) {
-    return { outcome: 'block', reason: 'Merchant is not on your allowed list.' };
-  }
-  if (committedCents + amountCents > rules.budgetCents) {
-    return { outcome: 'block', reason: overLimitReason, overLimit: true };
-  }
-  if (amountCents > rules.approvalCents) {
-    return { outcome: 'approval', reason: `Over your ${money(rules.approvalCents)} approval amount.` };
+  if (amountCents > limits.approvalCents) {
+    return { outcome: 'approval', reason: `Over your ${money(limits.approvalCents)} approval amount.` };
   }
   return { outcome: 'allow', reason: 'Within your rules.' };
 }
@@ -93,9 +85,16 @@ export class Guard {
       this.#clockOffsetMs = saved.clockOffsetMs;
       this.#auditFloor = saved.auditFloor;
       this.log = log;
-      // No agent survives a restart to finish these, so they cannot be left holding budget.
-      if (this.#cancelHeld('The server restarted before this purchase finished.')) this.#persist(this.#serialize());
+      this.#recoverAfterRestart();
     }
+  }
+
+  // No agent survives a restart to finish an intent, but an executed purchase still settles.
+  #recoverAfterRestart() {
+    const canceled = this.#cancelOpen('The server restarted before this purchase finished.', { statuses: INTENT_STATUSES });
+    const executed = this.purchases.filter((p) => p.status === 'held');
+    for (const purchase of executed) this.#charge(purchase, purchase.reason);
+    if (canceled || executed.length) this.#persist(this.#serialize());
   }
 
   #nowMs() {
@@ -111,7 +110,6 @@ export class Guard {
     this.rules = structuredClone(DEFAULT_RULES);
     this.agentShares = {};
     this.credit = { ...DEFAULT_CREDIT };
-    this.merchantAgents = structuredClone(DEFAULT_MERCHANT_AGENTS);
     this.purchases = [];
     this.log = [];
     this.refunds = [];
@@ -161,9 +159,9 @@ export class Guard {
       .reduce((total, p) => total + p.amountCents, 0);
   }
 
-  #sumAgentCents(purchase) {
+  #sumBy(field, value, statuses, excludeId) {
     return this.purchases
-      .filter((p) => COMMITTED_STATUSES.includes(p.status) && p.id !== purchase.id && p.connectionId === purchase.connectionId)
+      .filter((p) => statuses.includes(p.status) && p.id !== excludeId && p[field] === value)
       .reduce((total, p) => total + p.amountCents, 0);
   }
 
@@ -176,9 +174,10 @@ export class Guard {
       merchantId,
       merchantName: merchant.name,
       merchantLogo: merchant.logo,
+      category: merchant.category,
+      categoryIcon: CATEGORY_ICONS[merchant.category],
       connectionId: connection?.id ?? null,
       agentId: connection?.agentId ?? null,
-      agentCompanyId: connection?.companyId ?? null,
       agentName: connection?.shortName ?? 'Unknown agent',
       item,
       description: product.description,
@@ -207,7 +206,7 @@ export class Guard {
     purchase.status = status;
     purchase.reason = reason;
     purchase.settledAt = this.#nowIso();
-    if (purchase.holdOpen && !HOLD_STATUSES.includes(status)) {
+    if (purchase.holdOpen && status !== 'held') {
       purchase.holdOpen = false;
       if (status !== 'completed') this.#record('guard', `Released the ${money(purchase.amountCents)} hold on ${purchase.item}.`, purchase);
     }
@@ -217,42 +216,25 @@ export class Guard {
 
   #block(purchase, code, reason) {
     purchase.code = code;
-    this.#record('guard', `Blocked ${purchase.item}: ${reason.replace(/^Blocked: /, '')}`, purchase);
+    const declined = reason.match(/^Declined at checkout: (.*)$/);
+    this.#record('guard', declined ? `Declined ${purchase.item} at checkout: ${declined[1]}` : `Blocked ${purchase.item}: ${reason}`, purchase);
     this.#settle(purchase, 'blocked', reason);
   }
 
-  #placeHold(purchase) {
+  #setExpiry(purchase, fromMs = this.#nowMs()) {
+    purchase.expiresAt = new Date(fromMs + APPROVAL_DAYS * DAY_MS).toISOString();
+  }
+
+  #placeHold(purchase, reason) {
+    purchase.status = 'held';
+    purchase.reason = reason;
     purchase.holdOpen = true;
-    purchase.expiresAt = new Date(Date.parse(purchase.at) + APPROVAL_DAYS * DAY_MS).toISOString();
+    this.#setExpiry(purchase);
     this.#record('guard', `Placed a ${money(purchase.amountCents)} hold for ${purchase.item}.`, purchase);
   }
 
   #availableCredit() {
     return this.credit.creditLimitCents - this.credit.balanceCents;
-  }
-
-  #agentCommittedCents(agentId, excludeId) {
-    return this.purchases
-      .filter((p) => COMMITTED_STATUSES.includes(p.status) && p.id !== excludeId && p.agentId === agentId)
-      .reduce((total, p) => total + p.amountCents, 0);
-  }
-
-  // Limits beyond the allocation itself: available credit, then this agent's share if split.
-  #creditProblem(purchase, amountCents, committed) {
-    const available = this.#availableCredit();
-    if (committed + amountCents > available) {
-      return { code: 'credit', reason: `Blocked: would exceed your ${shortMoney(available)} available credit (${shortMoney(committed)} already used or on hold)` };
-    }
-    if (Object.keys(this.agentShares).length === 0 || !purchase.agentId) return null;
-    if (!Object.hasOwn(this.agentShares, purchase.agentId)) {
-      return { code: 'agent_share', reason: `Blocked: ${purchase.agentName} has no share of your ${shortMoney(this.rules.budgetCents)} agent limit` };
-    }
-    const share = this.agentShares[purchase.agentId];
-    const agentCommitted = this.#agentCommittedCents(purchase.agentId, purchase.id);
-    if (agentCommitted + amountCents > share) {
-      return { code: 'agent_share', reason: `Blocked: would exceed ${purchase.agentName}'s ${shortMoney(share)} share (${shortMoney(agentCommitted)} already used or on hold)` };
-    }
-    return null;
   }
 
   // Checks the token and its signed consent, then whether the customer's agents are paused.
@@ -266,23 +248,11 @@ export class Guard {
   #isDuplicate(purchase) {
     const now = Date.parse(purchase.at);
     return this.purchases.some((p) => p.id !== purchase.id
-      && COMMITTED_STATUSES.includes(p.status)
+      && [...COMMITTED_STATUSES, ...INTENT_STATUSES].includes(p.status)
       && p.merchantId === purchase.merchantId
       && p.item === purchase.item
       && p.amountCents === purchase.amountCents
       && now - Date.parse(p.at) < DUPLICATE_WINDOW_MS);
-  }
-
-  #merchantRefusesAgent(merchantId, companyId) {
-    return companyId !== null
-      && Object.hasOwn(this.merchantAgents, merchantId)
-      && !this.merchantAgents[merchantId].includes(companyId);
-  }
-
-  #partnerProblem(purchase) {
-    if (!this.#merchantRefusesAgent(purchase.merchantId, purchase.agentCompanyId)) return null;
-    const company = AGENT_COMPANIES.find((c) => c.id === purchase.agentCompanyId);
-    return { code: 'merchant_agent', reason: `${purchase.merchantName} does not accept agents from ${company.name}.` };
   }
 
   #agreedBy(purchase) {
@@ -306,31 +276,46 @@ export class Guard {
     return null;
   }
 
-  // A purchase has to fit both the customer's rules and this agent's signed consent.
-  #assess(purchase, amountCents, limits) {
-    const committed = this.#sumCents(COMMITTED_STATUSES, purchase.id);
-    const overLimit = `Blocked: would exceed your ${shortMoney(this.rules.budgetCents)} agent limit (${shortMoney(committed)} already used or on hold)`;
-    const byRules = evaluate(this.rules, committed, purchase.merchantId, amountCents, overLimit);
-    if (byRules.outcome === 'block') return { problem: { code: byRules.overLimit ? 'allocation' : 'rules', reason: byRules.reason } };
-    const credit = this.#creditProblem(purchase, amountCents, committed);
-    if (credit) return { problem: credit };
-    const byConsent = evaluate(limits, this.#sumAgentCents(purchase), purchase.merchantId, amountCents);
-    if (byConsent.outcome === 'block') {
-      return { problem: { code: 'consent', reason: `Outside this agent's permissions. ${byConsent.reason}` } };
-    }
-    const partner = this.#partnerProblem(purchase);
-    if (partner) return { problem: partner };
-    const held = [byRules, byConsent].find((result) => result.outcome === 'approval');
-    return { needsApproval: Boolean(held), reason: held?.reason ?? byRules.reason };
+  // What an intent needs: a valid amount, and approval if either the rules or the consent ask for it.
+  #assess(amountCents, limits) {
+    const results = [evaluate(this.rules, amountCents), evaluate(limits, amountCents)];
+    const blocked = results.find((result) => result.outcome === 'block');
+    if (blocked) return { problem: { code: 'rules', reason: blocked.reason } };
+    const held = results.find((result) => result.outcome === 'approval');
+    return { needsApproval: Boolean(held), reason: held?.reason ?? results[0].reason };
   }
 
-  #limitsProblem(purchase, amountCents, limits) {
-    const { problem, needsApproval, reason } = this.#assess(purchase, amountCents, limits);
-    if (problem) return problem;
+  // Whether the money is there, counting everything already charged or on hold.
+  #capacityProblem(purchase, amountCents, limits) {
+    const declined = (code, label, limit, used) => ({
+      code,
+      reason: `Declined at checkout: ${label} ${shortMoney(limit)} ${code === 'consent' ? 'consent budget' : code === 'agent_share' ? 'share' : code === 'credit' ? 'available credit' : 'agent limit'} has ${shortMoney(Math.max(0, limit - used))} left.`,
+    });
+    const used = this.#sumCents(COMMITTED_STATUSES, purchase.id);
+    if (used + amountCents > this.rules.budgetCents) return declined('allocation', 'your', this.rules.budgetCents, used);
+    if (used + amountCents > this.#availableCredit()) return declined('credit', 'your', this.#availableCredit(), used);
+
+    if (Object.keys(this.agentShares).length > 0) {
+      if (!Object.hasOwn(this.agentShares, purchase.agentId)) {
+        return { code: 'agent_share', reason: `Declined at checkout: ${purchase.agentName} has no share of your ${shortMoney(this.rules.budgetCents)} agent limit.` };
+      }
+      const share = this.agentShares[purchase.agentId];
+      const agentUsed = this.#sumBy('agentId', purchase.agentId, COMMITTED_STATUSES, purchase.id);
+      if (agentUsed + amountCents > share) return declined('agent_share', `${purchase.agentName}'s`, share, agentUsed);
+    }
+
+    const connectionUsed = this.#sumBy('connectionId', purchase.connectionId, COMMITTED_STATUSES, purchase.id);
+    if (connectionUsed + amountCents > limits.budgetCents) return declined('consent', `${purchase.agentName}'s`, limits.budgetCents, connectionUsed);
+    return null;
+  }
+
+  #executionProblem(purchase, final, limits) {
+    const { amountCents } = final;
+    const { needsApproval, reason } = this.#assess(amountCents, limits);
     if (needsApproval && !purchase.customerApproved) {
       return { code: 'approval_required', reason: `${reason} Your approval is required.` };
     }
-    return null;
+    return this.#capacityProblem(purchase, amountCents, limits);
   }
 
   #charge(purchase, reason) {
@@ -344,15 +329,12 @@ export class Guard {
     const problems = [];
     const committed = this.#sumCents(COMMITTED_STATUSES, purchase.id);
     if (!purchase.cleared) problems.push('the guard never cleared it');
-    if (!this.rules.allowedMerchantIds.includes(purchase.merchantId)) problems.push('the merchant is not on your allowed list');
-    if (this.#merchantRefusesAgent(purchase.merchantId, purchase.agentCompanyId)) problems.push('the merchant does not accept this agent company');
     if (committed + purchase.amountCents > this.rules.budgetCents) problems.push('it goes over your agent limit');
     if (committed + purchase.amountCents > this.#availableCredit()) problems.push('it goes over your available credit');
     if (purchase.amountCents > this.rules.approvalCents && !purchase.customerApproved) problems.push('it needed your approval');
     const limits = purchase.connectionId && this.connections.limits(purchase.connectionId, this.#nowMs());
-    if (limits) {
-      if (!limits.allowedMerchantIds.includes(purchase.merchantId)) problems.push('the merchant is outside this agent\'s permissions');
-      if (this.#sumAgentCents(purchase) + purchase.amountCents > limits.budgetCents) problems.push('it goes over this agent\'s budget');
+    if (limits && this.#sumBy('connectionId', purchase.connectionId, COMMITTED_STATUSES, purchase.id) + purchase.amountCents > limits.budgetCents) {
+      problems.push('it goes over this agent\'s budget');
     }
     if (problems.length === 0) return;
 
@@ -369,23 +351,24 @@ export class Guard {
     this.paused = true;
     this.agentStatus = { running: this.agentStatus.running, message: 'Paused after a flagged charge.' };
     this.#record('guard', 'Paused all agents automatically after a flagged charge.', null, true);
-    this.#cancelHeld('The agent was paused after a flagged charge.');
+    this.#cancelOpen('The agent was paused after a flagged charge.');
   }
 
   #applyLowerPrice(purchase, amountCents) {
     purchase.originalCents = purchase.amountCents;
     purchase.amountCents = amountCents;
     this.#record('guard', `Allowed lower final price for ${purchase.item}: ${money(amountCents)} instead of the ${money(purchase.originalCents)} ${this.#agreedBy(purchase)}.`, purchase);
-    this.#record('guard', `Released ${money(purchase.originalCents - amountCents)} of the hold on ${purchase.item}.`, purchase);
   }
 
-  // Sends any reminders that are due and auto-denies approvals that have run out of time.
+  // Sends any reminders that are due, and ends approvals and holds that have run out of time.
   #sweepApprovals() {
     let changed = false;
-    for (const purchase of this.purchases.filter((p) => p.status === 'authorized' && this.#nowMs() >= Date.parse(p.expiresAt))) {
+    const lapsed = this.purchases.filter((p) => ['authorized', 'held'].includes(p.status) && this.#nowMs() >= Date.parse(p.expiresAt));
+    for (const purchase of lapsed) {
+      const reason = purchase.status === 'held' ? 'the hold expired before the charge settled' : 'it expired before checkout';
       purchase.code = 'expired';
-      this.#settle(purchase, 'canceled', 'The hold expired before the charge.');
-      this.#record('guard', `Canceled ${purchase.item} at ${purchase.merchantName}: the hold expired before the charge.`, purchase);
+      this.#settle(purchase, 'canceled', `Canceled because ${reason}.`);
+      this.#record('guard', `Canceled ${purchase.item} at ${purchase.merchantName}: ${reason}.`, purchase);
       changed = true;
     }
     for (const purchase of this.purchases.filter((p) => p.status === 'pending')) {
@@ -407,53 +390,76 @@ export class Guard {
     return changed;
   }
 
-  #cancelHeld(reason, connectionId = null) {
-    const held = this.purchases.filter((p) => HOLD_STATUSES.includes(p.status) && (connectionId === null || p.connectionId === connectionId));
-    for (const purchase of held) {
+  #cancelOpen(reason, { connectionId = null, statuses = OPEN_STATUSES } = {}) {
+    const open = this.purchases.filter((p) => statuses.includes(p.status) && (connectionId === null || p.connectionId === connectionId));
+    for (const purchase of open) {
       this.#settle(purchase, 'canceled', reason);
       this.#record('guard', `Canceled ${purchase.item} at ${purchase.merchantName}: ${reason}`, purchase);
     }
-    return held.length > 0;
+    return open.length > 0;
   }
 
-  #spendByConnection() {
-    const spend = {};
-    for (const purchase of this.purchases) {
-      if (purchase.status === 'completed' && purchase.connectionId) {
-        spend[purchase.connectionId] = (spend[purchase.connectionId] ?? 0) + purchase.amountCents;
-      }
-    }
-    return spend;
+  #spendingByCategory() {
+    const rows = Object.entries(CATEGORY_ICONS).map(([category, icon]) => ({
+      category,
+      icon,
+      spentCents: this.#sumBy('category', category, ['completed']),
+      heldCents: this.#sumBy('category', category, ['held']),
+    }));
+    return rows.filter((row) => row.spentCents + row.heldCents > 0);
+  }
+
+  #spendingByAgent(connections, remainingCents) {
+    const split = Object.keys(this.agentShares).length > 0;
+    return DEMO_AGENTS.map((agent) => {
+      const spentCents = this.#sumBy('agentId', agent.id, ['completed']);
+      const heldCents = this.#sumBy('agentId', agent.id, ['held']);
+      const allocationCents = split ? (this.agentShares[agent.id] ?? 0) : this.rules.budgetCents;
+      return {
+        agentId: agent.id,
+        name: agent.name,
+        icon: agent.icon,
+        connected: connections.some((c) => c.agentId === agent.id && c.status === 'active'),
+        shared: !split,
+        allocationCents,
+        spentCents,
+        heldCents,
+        remainingCents: split ? Math.max(0, allocationCents - spentCents - heldCents) : remainingCents,
+      };
+    }).filter((row) => row.connected || row.spentCents + row.heldCents > 0 || Object.hasOwn(this.agentShares, row.agentId));
   }
 
   snapshot() {
     const spentCents = this.#sumCents(['completed']);
-    const heldCents = this.#sumCents(HOLD_STATUSES);
-    const holds = this.purchases.filter((p) => HOLD_STATUSES.includes(p.status)).map((p) => ({
+    const heldCents = this.#sumCents(['held']);
+    const remainingCents = Math.max(0, this.rules.budgetCents - spentCents - heldCents);
+    const holds = this.purchases.filter((p) => p.status === 'held').map((p) => ({
       purchaseId: p.id,
       item: p.item,
       merchantName: p.merchantName,
       merchantLogo: p.merchantLogo,
       agentName: p.agentName,
       amountCents: p.amountCents,
-      status: p.status,
       expiresAt: p.expiresAt,
     }));
-    const shares = Object.entries(this.agentShares).map(([agentId, shareCents]) => {
-      const used = this.#agentCommittedCents(agentId);
-      return { agentId, shortName: DEMO_AGENTS.find((a) => a.id === agentId).shortName, shareCents, usedCents: used, remainingCents: Math.max(0, shareCents - used) };
-    });
+    const spend = {};
+    for (const purchase of this.purchases) {
+      if (COMMITTED_STATUSES.includes(purchase.status) && purchase.connectionId) {
+        spend[purchase.connectionId] = (spend[purchase.connectionId] ?? 0) + purchase.amountCents;
+      }
+    }
+    const connections = this.connections.list(this.#nowMs(), spend);
     return {
       rules: this.rules,
       agentShares: this.agentShares,
       credit: { ...this.credit, availableCents: this.#availableCredit() },
-      allocation: { totalCents: this.rules.budgetCents, spentCents, heldCents, remainingCents: Math.max(0, this.rules.budgetCents - spentCents - heldCents), shares },
+      allocation: { totalCents: this.rules.budgetCents, spentCents, heldCents, remainingCents },
       holds,
+      spendingByAgent: this.#spendingByAgent(connections, remainingCents),
+      spendingByCategory: this.#spendingByCategory(),
       merchants: MERCHANTS,
-      agentCompanies: AGENT_COMPANIES,
       demoAgents: DEMO_AGENTS,
-      merchantAgents: this.merchantAgents,
-      connections: this.connections.list(this.#nowMs(), this.#spendByConnection()),
+      connections,
       refundReasons: REFUND_REASONS,
       now: this.#nowIso(),
       simulatedDays: this.#clockOffsetMs / DAY_MS,
@@ -461,7 +467,7 @@ export class Guard {
       alerts: this.alerts,
       spentCents,
       heldCents,
-      remainingCents: Math.max(0, this.rules.budgetCents - spentCents - heldCents),
+      remainingCents,
       purchases: this.purchases,
       refunds: this.refunds,
       log: this.log,
@@ -474,21 +480,14 @@ export class Guard {
     return purchase && { ...purchase };
   }
 
-  agentLimits(token) {
-    return this.connections.authorize(token, this.#nowMs()).limits ?? null;
-  }
-
   // A consent can only narrow what the customer's own rules already allow.
   validatePermissions(input) {
     if (!input || typeof input !== 'object') throw new GuardError('Permissions are missing.');
-    const { budgetCents, approvalCents, allowedMerchantIds, connectionExpiresOn } = input;
-    const error = rulesError({ budgetCents, approvalCents, allowedMerchantIds });
+    const { budgetCents, approvalCents, connectionExpiresOn } = input;
+    const error = rulesError({ budgetCents, approvalCents });
     if (error) throw new GuardError(error);
     if (budgetCents > this.rules.budgetCents) throw new GuardError(`Budget cannot be more than your ${money(this.rules.budgetCents)} agent allocation.`);
     if (approvalCents > this.rules.approvalCents) throw new GuardError(`Approval amount cannot be more than your ${money(this.rules.approvalCents)} limit.`);
-    if (!allowedMerchantIds.every((id) => this.rules.allowedMerchantIds.includes(id))) {
-      throw new GuardError('Allowed merchants must be on your Rules screen first.');
-    }
     if (typeof connectionExpiresOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(connectionExpiresOn)) {
       throw new GuardError('Choose a connection expiry date.');
     }
@@ -496,12 +495,7 @@ export class Guard {
     if (Number.isNaN(expiresAtMs) || expiresAtMs <= this.#nowMs() || expiresAtMs > this.#nowMs() + MAX_CONNECTION_DAYS * DAY_MS) {
       throw new GuardError(`Connection expiry must be within the next ${MAX_CONNECTION_DAYS} days.`);
     }
-    return {
-      budgetCents,
-      approvalCents,
-      allowedMerchantIds: [...new Set(allowedMerchantIds)],
-      connectionExpiresAt: new Date(expiresAtMs).toISOString(),
-    };
+    return { budgetCents, approvalCents, connectionExpiresAt: new Date(expiresAtMs).toISOString() };
   }
 
   nowMs() {
@@ -517,21 +511,16 @@ export class Guard {
     const shares = rules.agentShares ?? this.agentShares;
     this.#validateShares(shares, rules.budgetCents);
     this.agentShares = { ...shares };
-    this.rules = {
-      budgetCents: rules.budgetCents,
-      allowedMerchantIds: [...new Set(rules.allowedMerchantIds)],
-      approvalCents: rules.approvalCents,
-    };
-    const names = this.rules.allowedMerchantIds.map(merchantName).join(', ') || 'none';
-    const split = Object.entries(this.agentShares).map(([id, cents]) => `${DEMO_AGENTS.find((a) => a.id === id).shortName} ${money(cents)}`).join(', ');
-    this.#record('customer', `Set rules: ${money(this.rules.budgetCents)} agent allocation${split ? ` (split: ${split})` : ''}, approval above ${money(this.rules.approvalCents)}, allowed merchants: ${names}.`);
+    this.rules = { budgetCents: rules.budgetCents, approvalCents: rules.approvalCents };
+    const split = Object.entries(this.agentShares).map(([id, cents]) => `${agentById(id).shortName} ${money(cents)}`).join(', ');
+    this.#record('customer', `Set rules: ${money(this.rules.budgetCents)} agent allocation${split ? ` (split: ${split})` : ''}, approval above ${money(this.rules.approvalCents)}.`);
     this.#notify();
   }
 
   #validateShares(shares, allocationCents) {
     if (!shares || typeof shares !== 'object' || Array.isArray(shares)) throw new GuardError('Agent shares are not valid.');
     const entries = Object.entries(shares);
-    if (!entries.every(([id, cents]) => DEMO_AGENTS.some((a) => a.id === id) && isCents(cents))) {
+    if (!entries.every(([id, cents]) => agentById(id) && isCents(cents))) {
       throw new GuardError('Agent shares must be valid amounts for known agents.');
     }
     const total = entries.reduce((sum, [, cents]) => sum + cents, 0);
@@ -540,23 +529,12 @@ export class Guard {
     }
   }
 
-  setMerchantAgents(merchantId, agentCompanyIds) {
-    if (!Object.hasOwn(this.merchantAgents, merchantId)) throw new GuardError('Merchant not found.', 404);
-    if (!Array.isArray(agentCompanyIds) || !agentCompanyIds.every((id) => AGENT_COMPANIES.some((company) => company.id === id))) {
-      throw new GuardError('Agent companies must be known companies.');
-    }
-    this.merchantAgents[merchantId] = [...new Set(agentCompanyIds)];
-    const names = AGENT_COMPANIES.filter((c) => this.merchantAgents[merchantId].includes(c.id)).map((c) => c.name).join(', ') || 'none';
-    this.#record('merchant', `${merchantName(merchantId)} now accepts agents from: ${names}.`);
-    this.#notify();
-  }
-
-  // Only this agent's token stops working and only its purchases in progress are canceled.
+  // Only this agent's token stops working and only its open purchases are canceled.
   revokeConnection(connectionId) {
     if (!this.connections.revoke(connectionId, this.#nowMs())) throw new GuardError('Connection not found.', 404);
     const name = this.connections.list(this.#nowMs()).find((c) => c.id === connectionId).shortName;
     this.#record('customer', `Revoked ${name}'s access. Its test token no longer works.`);
-    this.#cancelHeld('Access was revoked before the charge.', connectionId);
+    this.#cancelOpen('Access was revoked before the charge.', { connectionId });
     this.#notify();
   }
 
@@ -581,9 +559,7 @@ export class Guard {
     this.#notify();
   }
 
-  // First gate: decides whether the agent may proceed to checkout. No money moves here.
-  // Keep this method synchronous: checking the limits and placing the hold must be one step,
-  // so that simultaneous intents are handled one after another and each sees the last one's hold.
+  // First gate: records the intent and decides whether it needs approval. It reserves nothing.
   attempt({ token, merchantId, item, amountCents, overreach = false }) {
     const auth = this.#authorize(token);
     const purchase = this.#open({ merchantId, item, amountCents, overreach }, auth.connection);
@@ -592,20 +568,20 @@ export class Guard {
     if (auth.problem) {
       this.#block(purchase, auth.problem.code, auth.problem.reason);
     } else {
-      const { problem, needsApproval, reason } = this.#assess(purchase, amountCents, auth.limits);
+      const { problem, needsApproval, reason } = this.#assess(amountCents, auth.limits);
       if (problem) {
         this.#block(purchase, problem.code, problem.reason);
       } else if (this.#isDuplicate(purchase)) {
         this.#block(purchase, 'duplicate', 'Duplicate of a recent purchase with the same merchant, item, and amount.');
       } else if (needsApproval) {
         purchase.reason = reason;
-        this.#placeHold(purchase);
-        this.#record('guard', `Held ${item} for your approval: ${reason}`, purchase);
+        this.#setExpiry(purchase, Date.parse(purchase.at));
+        this.#record('guard', `Waiting for your approval on ${item}: ${reason}`, purchase);
       } else {
         purchase.cleared = true;
         purchase.status = 'authorized';
         purchase.reason = reason;
-        this.#placeHold(purchase);
+        this.#setExpiry(purchase);
         this.#record('guard', `Cleared ${item}: ${reason}`, purchase);
       }
     }
@@ -613,7 +589,9 @@ export class Guard {
     return { ...purchase };
   }
 
-  // Final gate: the only way a cleared purchase becomes a charge.
+  // Final gate: executes a cleared purchase and places its hold.
+  // Keep this method synchronous: checking the limits and placing the hold must be one step,
+  // so that simultaneous purchases are handled one after another and each sees the last one's hold.
   checkout({ token, purchaseId, merchantId, item, amountCents, overreach = false }) {
     const final = { merchantId, item, amountCents, overreach };
     const purchase = this.purchases.find((p) => p.id === purchaseId);
@@ -626,7 +604,7 @@ export class Guard {
       if (!problem && auth.connection.id !== purchase.connectionId) {
         problem = { code: 'wrong_token', reason: 'This purchase was cleared for a different agent.' };
       }
-      problem ??= this.#mismatchProblem(purchase, final) ?? this.#limitsProblem(purchase, amountCents, auth.limits);
+      problem ??= this.#mismatchProblem(purchase, final) ?? this.#executionProblem(purchase, final, auth.limits);
       if (problem) {
         this.#block(purchase, problem.code, problem.reason);
       } else {
@@ -635,18 +613,27 @@ export class Guard {
           reason = `${reason} Final price was lower than the ${money(purchase.amountCents)} quoted.`;
           this.#applyLowerPrice(purchase, amountCents);
         }
-        this.#charge(purchase, reason);
+        this.#placeHold(purchase, reason);
       }
       result = purchase;
     } else {
       // Nothing is cleared for this charge, so it is recorded separately and the original stays as it was.
       result = this.#open(final, auth.connection);
       this.#record('agent', `${result.agentName} tried to charge ${item} for ${money(amountCents)} at ${result.merchantName}.`, result);
-      if (purchase?.status === 'completed') this.#block(result, 'duplicate', 'This purchase has already been charged.');
+      if (purchase && COMMITTED_STATUSES.includes(purchase.status)) this.#block(result, 'duplicate', 'This purchase has already been charged.');
       else this.#block(result, 'not_cleared', 'This charge was not cleared by the guard.');
     }
     this.#notify();
     return { ...result };
+  }
+
+  // The merchant's mock settlement: turns an active hold into a charge.
+  settleCharge(purchaseId) {
+    const purchase = this.purchases.find((p) => p.id === purchaseId);
+    if (purchase?.status !== 'held') return null;
+    this.#charge(purchase, purchase.reason);
+    this.#notify();
+    return { ...purchase };
   }
 
   // A settled charge from the mock processor that never passed through checkout.
@@ -677,17 +664,12 @@ export class Guard {
     } else {
       this.#record('customer', `Approved ${purchase.item} at ${purchase.merchantName}.`, purchase);
       purchase.customerApproved = true;
-      // The rules and consent may have changed while this purchase waited, so check them again.
-      const limits = this.connections.limits(purchase.connectionId, this.#nowMs());
-      const problem = limits
-        ? this.#limitsProblem(purchase, purchase.amountCents, limits)
-        : { code: 'no_access', reason: 'The agent does not have access.' };
-      if (problem) {
-        this.#block(purchase, problem.code, problem.reason);
-      } else {
+      if (this.connections.limits(purchase.connectionId, this.#nowMs())) {
         purchase.cleared = true;
-        purchase.expiresAt = new Date(this.#nowMs() + APPROVAL_DAYS * DAY_MS).toISOString();
+        this.#setExpiry(purchase);
         this.#settle(purchase, 'authorized', 'You approved this purchase.');
+      } else {
+        this.#block(purchase, 'no_access', 'The agent does not have access.');
       }
     }
     this.#notify();

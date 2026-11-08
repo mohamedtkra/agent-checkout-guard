@@ -37,6 +37,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Atomic limit checks, with tests that fire 10 intents at once.
 - Home screen meter showing allocation, spent, on hold, and remaining, plus open holds with expiry dates.
 - Decision 007, allocation and hold requirements in the PRD, and a limit breaches metric with a target of 0.
+- Category icons on purchases, and Spending by category and Spending by agent views.
+- A warning on the approval screen that approval doesn't reserve funds.
+- Decision 008, and a metric for approved purchases declined at checkout.
 
 ### Changed
 
@@ -49,3 +52,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The banner on every screen now reads "Demo - no real accounts or payments".
 - The project now depends on better-sqlite3.
 - The Rules budget is now the agent allocation, with a default of $500.
+- Agents are now named "ChatGPT (OpenAI)" and "Gemini (Google)", with simple initial badges instead of icons.
+- Holds are now placed only when a purchase is executed. Intents, including those waiting for approval, reserve nothing, and limits are checked at checkout.
+- The agent allocation can now be split by company.
+
+### Removed
+
+- Merchant allow-lists, allow-by-category, and merchant choice of agent companies, including the mock Merchant settings screen.

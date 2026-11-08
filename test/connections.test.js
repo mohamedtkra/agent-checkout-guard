@@ -44,7 +44,8 @@ test('the connection stores a signed intent mandate that verifies', () => {
   const consent = consentRow(guard, a.connectionId);
   const mandate = JSON.parse(consent.mandate_json);
   assert.equal(mandate.type, 'IntentMandate');
-  assert.equal(mandate.agent.name, 'Demo Agent A (ChatGPT-style assistant)');
+  assert.equal(mandate.agent.name, 'ChatGPT (OpenAI)');
+  assert.equal(mandate.agent.company, 'OpenAI');
   assert.equal(mandate.permissions.approvalExpiryDays, 3);
   assert.ok(mandate.stepUp.verifiedAt);
   assert.equal(guard.store.signer.verify(consent.mandate_json, consent.signature), true);
@@ -63,17 +64,16 @@ test('a tampered consent stops the token from working', () => {
 });
 
 test('a purchase outside the consent is blocked even when the rules allow it', () => {
-  const { guard, b } = twoAgents({ allowedMerchantIds: ['pharmacy'], budgetCents: 3000 });
-  const merchant = buy(guard, b.token, 'grocer');
-  assert.equal(merchant.code, 'consent');
-  assert.match(merchant.reason, /Outside this agent's permissions/);
+  const { guard, b } = twoAgents({ budgetCents: 3000 });
   assert.equal(buy(guard, b.token, 'pharmacy', 2500).status, 'completed');
-  assert.equal(buy(guard, b.token, 'pharmacy', 600, 'Second').code, 'consent');
+  const over = buy(guard, b.token, 'pharmacy', 600, 'Second');
+  assert.equal(over.code, 'consent');
+  assert.equal(over.reason, "Declined at checkout: Gemini's $30 consent budget has $5 left.");
 });
 
 test('a purchase inside the consent is still blocked by the rules', () => {
   const { guard, a } = twoAgents();
-  guard.setRules({ budgetCents: 1000, approvalCents: 1000, allowedMerchantIds: ['grocer'] });
+  guard.setRules({ budgetCents: 1000, approvalCents: 5000 });
   assert.equal(buy(guard, a.token, 'grocer', 2000).code, 'allocation');
 });
 
@@ -88,7 +88,7 @@ test('agent budgets are separate', () => {
   assert.equal(buy(guard, a.token, 'grocer', 4000, 'From A').status, 'completed');
   assert.equal(buy(guard, b.token, 'grocer', 2500, 'From B').status, 'completed');
   const spend = Object.fromEntries(guard.snapshot().connections.map((c) => [c.shortName, c.spentCents]));
-  assert.deepEqual(spend, { 'Demo Agent A': 4000, 'Demo Agent B': 2500 });
+  assert.deepEqual(spend, { 'ChatGPT': 4000, 'Gemini': 2500 });
 });
 
 test('revoking one agent does not affect the others', () => {
@@ -102,7 +102,7 @@ test('revoking one agent does not affect the others', () => {
   assert.equal(guard.attempt({ token: a.token, merchantId: 'grocer', item: 'After', amountCents: 300 }).code, 'no_access');
   assert.equal(guard.attempt({ token: b.token, merchantId: 'grocer', item: 'After', amountCents: 400 }).status, 'authorized');
   const statuses = Object.fromEntries(guard.snapshot().connections.map((c) => [c.shortName, c.status]));
-  assert.deepEqual(statuses, { 'Demo Agent A': 'revoked', 'Demo Agent B': 'active' });
+  assert.deepEqual(statuses, { 'ChatGPT': 'revoked', 'Gemini': 'active' });
 });
 
 test('a revoked agent can connect again and gets a new token', () => {
@@ -140,7 +140,7 @@ test('a token stops working when the connection expires', () => {
   const result = guard.attempt({ token: b.token, merchantId: 'grocer', item: 'After', amountCents: 200 });
   assert.equal(result.code, 'no_access');
   assert.match(result.reason, /expired/);
-  assert.equal(guard.snapshot().connections.find((c) => c.shortName === 'Demo Agent B').status, 'expired');
+  assert.equal(guard.snapshot().connections.find((c) => c.shortName === 'Gemini').status, 'expired');
 });
 
 test('editing permissions signs a new consent and keeps the token', () => {
@@ -149,7 +149,7 @@ test('editing permissions signs a new consent and keeps the token', () => {
   guard.store.connections.amend({
     user: guard.user,
     connectionId: a.connectionId,
-    permissions: { budgetCents: 500, approvalCents: 500, allowedMerchantIds: ['grocer'], connectionExpiresAt: new Date(Date.now() + 5 * DAY_MS).toISOString() },
+    permissions: { budgetCents: 500, approvalCents: 500, connectionExpiresAt: new Date(Date.now() + 5 * DAY_MS).toISOString() },
     stepUp: { challengeId: 'test', verifiedAt: new Date().toISOString() },
     nowMs: Date.now(),
   });
@@ -157,8 +157,8 @@ test('editing permissions signs a new consent and keeps the token', () => {
   assert.equal(after.version, 2);
   assert.notEqual(after.id, before.id);
   assert.ok(guard.store.db.prepare('SELECT superseded_at FROM consents WHERE id = ?').get(before.id).superseded_at);
-  assert.equal(buy(guard, a.token, 'grocer', 600).code, 'consent');
   assert.equal(buy(guard, a.token, 'grocer', 400).status, 'completed');
+  assert.equal(buy(guard, a.token, 'grocer', 200).code, 'consent');
 });
 
 test('a held purchase rechecks the edited consent when approved', () => {
@@ -167,11 +167,14 @@ test('a held purchase rechecks the edited consent when approved', () => {
   guard.store.connections.amend({
     user: guard.user,
     connectionId: b.connectionId,
-    permissions: { budgetCents: 1000, approvalCents: 1000, allowedMerchantIds: ['grocer'], connectionExpiresAt: new Date(Date.now() + 5 * DAY_MS).toISOString() },
+    permissions: { budgetCents: 1000, approvalCents: 1000, connectionExpiresAt: new Date(Date.now() + 5 * DAY_MS).toISOString() },
     stepUp: { challengeId: 'test', verifiedAt: new Date().toISOString() },
     nowMs: Date.now(),
   });
-  assert.equal(guard.decide(held.id, true).code, 'consent');
+  const approved = guard.decide(held.id, true);
+  assert.equal(approved.status, 'authorized');
+  const result = guard.checkout({ token: b.token, purchaseId: approved.id, merchantId: 'grocer', item: 'Item', amountCents: 2000 });
+  assert.equal(result.code, 'consent');
 });
 
 test('last activity is recorded when an agent uses its token', () => {
@@ -184,11 +187,10 @@ test('last activity is recorded when an agent uses its token', () => {
 
 test('consent limits cannot go beyond the customer\'s rules', () => {
   const guard = createGuard();
-  const valid = { budgetCents: 1000, approvalCents: 1000, allowedMerchantIds: ['grocer'], connectionExpiresOn: new Date(Date.now() + 5 * DAY_MS).toISOString().slice(0, 10) };
+  const valid = { budgetCents: 1000, approvalCents: 1000, connectionExpiresOn: new Date(Date.now() + 5 * DAY_MS).toISOString().slice(0, 10) };
   assert.equal(guard.validatePermissions(valid).budgetCents, 1000);
   assert.throws(() => guard.validatePermissions({ ...valid, budgetCents: 50001 }), /agent allocation/);
   assert.throws(() => guard.validatePermissions({ ...valid, approvalCents: 9000 }), /Approval amount/);
-  assert.throws(() => guard.validatePermissions({ ...valid, allowedMerchantIds: ['audio'] }), /Rules screen/);
   assert.throws(() => guard.validatePermissions({ ...valid, connectionExpiresOn: '2020-01-01' }), /within the next/);
   assert.throws(() => guard.validatePermissions({ ...valid, connectionExpiresOn: 'soon' }), /expiry date/);
   assert.throws(() => guard.validatePermissions(null), /missing/);
@@ -208,7 +210,7 @@ test('data survives a restart, and the signing key is private', () => {
   const user = createUser(first.db);
   const { token, connectionId } = linkAgent(first, user, 'agent-a');
   const { guard } = first.wallets.get(user.id);
-  guard.setRules({ budgetCents: 5000, approvalCents: 1000, allowedMerchantIds: ['grocer'] });
+  guard.setRules({ budgetCents: 5000, approvalCents: 1000 });
   const paid = buy(guard, token, 'grocer', 900);
   const held = guard.attempt({ token, merchantId: 'grocer', item: 'Held', amountCents: 2000 });
   first.db.close();

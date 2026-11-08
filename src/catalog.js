@@ -1,15 +1,17 @@
-export const AGENT_COMPANIES = [
-  { id: 'quillhop', name: 'Quillhop Agents' },
-  { id: 'pennowl', name: 'Pennowl Agents' },
-  { id: 'zephwick', name: 'Zephwick Agents' },
+// Demo only: these agents are simulated and are not connected to or affiliated with these companies.
+export const DEMO_AGENTS = [
+  { id: 'agent-a', name: 'ChatGPT (OpenAI)', shortName: 'ChatGPT', icon: '/agents/agent-a.svg', company: 'OpenAI' },
+  { id: 'agent-b', name: 'Gemini (Google)', shortName: 'Gemini', icon: '/agents/agent-b.svg', company: 'Google' },
+  { id: 'agent-c', name: 'Demo Agent C (shopping app)', shortName: 'Demo Agent C', icon: '/agents/agent-c.svg', company: 'Demo' },
 ];
 
-// Demo agents only. The "-style" labels describe the kind of assistant being imitated.
-export const DEMO_AGENTS = [
-  { id: 'agent-a', name: 'Demo Agent A (ChatGPT-style assistant)', shortName: 'Demo Agent A', icon: '/agents/agent-a.svg', companyId: 'quillhop' },
-  { id: 'agent-b', name: 'Demo Agent B (Gemini-style assistant)', shortName: 'Demo Agent B', icon: '/agents/agent-b.svg', companyId: 'pennowl' },
-  { id: 'agent-c', name: 'Demo Agent C (shopping app)', shortName: 'Demo Agent C', icon: '/agents/agent-c.svg', companyId: 'zephwick' },
-];
+// Categories are labels for display and reporting. They never decide whether a purchase is allowed.
+export const CATEGORY_ICONS = {
+  Groceries: '/categories/groceries.svg',
+  Health: '/categories/health.svg',
+  Gadgets: '/categories/gadgets.svg',
+  Other: '/categories/other.svg',
+};
 
 // All merchant details are invented for the prototype.
 export const MERCHANTS = [
@@ -22,7 +24,6 @@ export const MERCHANTS = [
     location: '14 Fennel Row, Sampleville',
     support: 'help@thistlewick.example',
     returns: 'Refunds on damaged items within 7 days.',
-    acceptedAgents: ['quillhop', 'pennowl', 'zephwick'],
   },
   {
     id: 'market',
@@ -33,7 +34,6 @@ export const MERCHANTS = [
     location: '3 Orchard Steps, Sampleville',
     support: 'care@hollowfern.example',
     returns: 'Refunds on unopened items within 14 days.',
-    acceptedAgents: ['quillhop', 'pennowl'],
   },
   {
     id: 'pharmacy',
@@ -44,7 +44,6 @@ export const MERCHANTS = [
     location: '27 Bellflower Lane, Sampleville',
     support: 'help@mossbell.example',
     returns: 'Unopened items only, within 30 days.',
-    acceptedAgents: ['quillhop', 'pennowl'],
   },
   {
     id: 'wellness',
@@ -55,7 +54,6 @@ export const MERCHANTS = [
     location: '8 Skylark Court, Sampleville',
     support: 'support@larkmoss.example',
     returns: 'Returns within 30 days with receipt.',
-    acceptedAgents: ['quillhop'],
   },
   {
     id: 'electronics',
@@ -66,7 +64,6 @@ export const MERCHANTS = [
     location: '51 Circuit Yard, Sampleville',
     support: 'help@voltwren.example',
     returns: 'Returns within 30 days in original packaging.',
-    acceptedAgents: ['quillhop', 'zephwick'],
   },
   {
     id: 'audio',
@@ -77,13 +74,10 @@ export const MERCHANTS = [
     location: '6 Quayside Works, Sampleville',
     support: 'hello@tinkerquay.example',
     returns: 'Returns within 21 days in original packaging.',
-    acceptedAgents: ['quillhop', 'zephwick'],
   },
 ];
 
-export const DEFAULT_MERCHANT_AGENTS = Object.fromEntries(MERCHANTS.map((m) => [m.id, m.acceptedAgents]));
-
-const UNKNOWN_MERCHANT = { name: 'Unknown merchant', logo: '/merchants/unknown.svg' };
+const UNKNOWN_MERCHANT = { name: 'Unknown merchant', category: 'Other', logo: '/merchants/unknown.svg' };
 
 const PLACEHOLDER_PRODUCT = {
   description: 'No product details were provided.',
@@ -107,6 +101,7 @@ export const productFor = (item) => (Object.hasOwn(PRODUCTS, item) ? PRODUCTS[it
 
 export const ASSET_PATHS = [
   ...DEMO_AGENTS.map((a) => a.icon),
+  ...Object.values(CATEGORY_ICONS),
   ...MERCHANTS.map((m) => m.logo),
   UNKNOWN_MERCHANT.logo,
   ...Object.values(PRODUCTS).map((p) => p.image),

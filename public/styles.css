@@ -17,6 +17,8 @@
   --red-ink: #8c1d18;
   --grey-soft: #e6e3da;
   --grey-ink: #4a524d;
+  --chart-spent: #0f7f5c;
+  --chart-held: #bf7f00;
   color-scheme: light dark;
 }
 
@@ -39,6 +41,8 @@
     --red-ink: #f9b8b2;
     --grey-soft: #2c3430;
     --grey-ink: #c2cbc6;
+    --chart-spent: #23a07c;
+    --chart-held: #b88412;
   }
 }
 
@@ -84,8 +88,8 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .dot.on { background: var(--brand); }
 
 .meter { display: flex; height: 8px; margin-top: 12px; overflow: hidden; border-radius: 4px; background: var(--grey-soft); }
-.meter-spent { background: var(--brand); transition: width 0.3s; }
-.meter-held { background: var(--amber); transition: width 0.3s; }
+.meter-spent { background: var(--chart-spent); transition: width 0.3s; }
+.meter-held { background: var(--chart-held); transition: width 0.3s; }
 .meter-text { margin-top: 6px; color: var(--muted); font-size: 0.8rem; }
 
 main { padding: 20px 16px; }
@@ -180,6 +184,18 @@ main { padding: 20px 16px; }
 .reminder-notice .button { flex: none; color: var(--text); }
 .log-entry.reminder { border-left-color: var(--amber); }
 
+.legend { display: flex; align-items: center; gap: 6px; margin: 18px 0 0; color: var(--muted); font-size: 0.8rem; }
+.swatch { width: 10px; height: 10px; border-radius: 3px; }
+.swatch.spent { background: var(--chart-spent); }
+.swatch.held { margin-left: 10px; background: var(--chart-held); }
+.spend-bar { display: flex; gap: 2px; height: 8px; margin-top: 10px; overflow: hidden; border-radius: 4px; background: var(--grey-soft); }
+.spend-bar .spent { background: var(--chart-spent); }
+.spend-bar .held { background: var(--chart-held); }
+.category-icon { width: 20px; height: 20px; flex: none; }
+.category-label { margin-top: 6px; }
+.approval-warning { color: var(--text); font-weight: 600; }
+.tag.held { background: var(--amber-soft); color: var(--amber-ink); }
+.spaced-list { margin-top: 10px; }
 .meter.large { height: 12px; margin-top: 0; border-radius: 6px; }
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 12px 0 0; }
 .stat dt { color: var(--muted); font-size: 0.74rem; }

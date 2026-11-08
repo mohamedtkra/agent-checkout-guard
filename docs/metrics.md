@@ -6,7 +6,7 @@
 
 | Metric | Definition | Baseline | Target |
 | --- | --- | --- | --- |
-| Rule violations stopped | Share of test purchases that break the budget or merchant rules and are blocked | TBD | TBD |
+| Rule violations stopped | Share of test purchases that break a rule or limit and are declined | TBD | TBD |
 | Approval enforcement | Share of test purchases above the approval amount that wait for the customer's decision | TBD | TBD |
 | False blocks | Share of test purchases within the rules that are wrongly blocked or held | TBD | TBD |
 | Added checkout time | Extra time the rule check adds to a purchase that needs no approval | TBD | TBD |
@@ -18,6 +18,7 @@
 | Time to refund | Time from a refund request being submitted to it reaching Refunded | TBD | TBD |
 | Refund rate | Share of charged purchases that end in a Refunded request | TBD | TBD |
 | Limit breaches | Number of charges that take agent spending past the allocation, available credit, or an agent's share | TBD | 0 |
+| Approved purchases declined at checkout | Share of customer-approved purchases later declined because a limit was used up first | TBD | TBD |
 
 ## Measurement plan
 

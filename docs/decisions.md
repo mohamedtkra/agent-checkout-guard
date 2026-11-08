@@ -21,10 +21,25 @@ A running log of significant project decisions. Add new entries at the top, and 
 
 ## Log
 
-## 007: Cap agent spending with an allocation of available credit, and place holds on open intents
+## 008: Categories are informational only, and holds apply only to executed purchases
 
 - **Date:** 2026-11-08
 - **Status:** Accepted
+
+**Context:** Allowing and refusing purchases by merchant or category added rules customers did not need. Holds on intents also tied up allocation for purchases that might never happen, for up to 3 days.
+
+**Decision:** Categories are informational only. They appear on purchases and in a spending breakdown, and they never allow or block anything. There is no merchant allow-list, merchants are identified only by name and category, and merchants no longer choose which agent companies they accept. Holds apply only to executed purchases, not intents. An intent, including one waiting for approval, reserves nothing. When a purchase is executed, one atomic step checks that charged amounts, active holds, and this purchase fit within the agent allocation, available credit, and the agent's share if split, then places the hold. If it does not fit, the purchase is declined with the reason. The allocation can be split by company. This supersedes decision 006 and the intent-hold part of decision 007.
+
+**Trade-off:** Approved intents can fail at checkout. A customer can approve a purchase and still see it declined if other purchases use up the limit first. The approval screen warns about this: "Approval doesn't reserve funds; this can still fail if your limit is used up first."
+
+**Alternatives considered:** Keeping holds on intents guarantees that an approved purchase can complete, but it ties up allocation for purchases that may never execute and lets a few waiting approvals block everyday spending. Reserving only after approval would still tie up funds until the purchase executes.
+
+**Consequences:** Allocation is only used by purchases that actually execute. Customers may be asked to approve a purchase that cannot complete. The safety blocks from decision 003, which cover a changed price, merchant, or item, a duplicate purchase, and a paused or revoked agent, still apply. The checks stay atomic only while one server process handles each customer, as decision 007 notes.
+
+## 007: Cap agent spending with an allocation of available credit, and place holds on open intents
+
+- **Date:** 2026-11-08
+- **Status:** Accepted, intent holds superseded by 008
 
 **Context:** Agents act independently and can open purchases at the same time. Checking only what has already been charged would let several intents each pass and together go over the customer's limit.
 
@@ -37,7 +52,7 @@ A running log of significant project decisions. Add new entries at the top, and 
 ## 006: Merchants choose agent companies, and customers can allow by category
 
 - **Date:** 2026-11-08
-- **Status:** Accepted
+- **Status:** Superseded by 008
 
 **Context:** Merchants should have a say in which agent companies can buy from them, and customers should be able to think in merchant categories.
 

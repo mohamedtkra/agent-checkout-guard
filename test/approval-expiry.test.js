@@ -6,7 +6,7 @@ import { MockAgent } from '../src/agent.js';
 import { ASSET_PATHS, MERCHANTS, productFor } from '../src/catalog.js';
 import { createGuard } from '../testing/harness.js';
 
-const RULES = { budgetCents: 10000, allowedMerchantIds: ['grocer'], approvalCents: 5000 };
+const RULES = { budgetCents: 10000, approvalCents: 5000 };
 
 function heldPurchase() {
   const guard = createGuard();
@@ -84,12 +84,17 @@ test('the mock agent moves on after an approval expires', async () => {
   const guard = createGuard();
   guard.grantAccess();
   const run = new MockAgent(guard, { stepMs: 0 }).run(guard.agentToken());
-  while (!guard.purchases.some((p) => p.status === 'pending')) await new Promise((r) => setTimeout(r, 1));
-  guard.advanceDay();
-  guard.advanceDay();
-  guard.advanceDay();
-  await run;
-  assert.deepEqual(guard.purchases.map((p) => p.status), ['completed', 'completed', 'blocked', 'denied', 'completed', 'blocked']);
+  let finished = false;
+  run.then(() => { finished = true; });
+  while (!finished) {
+    if (guard.purchases.some((p) => p.status === 'pending')) {
+      guard.advanceDay();
+      guard.advanceDay();
+      guard.advanceDay();
+    }
+    await new Promise((r) => setTimeout(r, 1));
+  }
+  assert.deepEqual(guard.purchases.map((p) => p.status), ['completed', 'completed', 'completed', 'denied', 'completed', 'denied']);
   assert.equal(guard.purchases[4].amountCents, 4200);
   assert.ok(guard.log.some((entry) => /Allowed lower final price for Blood pressure monitor/.test(entry.message)));
 });

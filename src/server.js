@@ -147,7 +147,6 @@ function handleWallet(res, pathname, body, { user, guard, agent }) {
   const decision = pathname.match(/^\/api\/purchases\/([\w-]+)\/decision$/);
   const report = pathname.match(/^\/api\/purchases\/([\w-]+)\/report$/);
   const refundStep = pathname.match(/^\/api\/refunds\/([\w-]+)\/advance$/);
-  const merchantAgents = pathname.match(/^\/api\/merchants\/([\w-]+)\/agents$/);
   const revoke = pathname.match(/^\/api\/connections\/([\w-]+)\/revoke$/);
 
   if (pathname === '/api/rules') {
@@ -162,8 +161,6 @@ function handleWallet(res, pathname, body, { user, guard, agent }) {
     guard.resumeAgent();
   } else if (pathname === '/api/simulate/uncleared-charge') {
     guard.recordUnclearedCharge(UNCLEARED_CHARGE);
-  } else if (merchantAgents) {
-    guard.setMerchantAgents(merchantAgents[1], body.agentCompanyIds);
   } else if (pathname === '/api/simulate/next-day') {
     guard.advanceDay();
   } else if (decision) {

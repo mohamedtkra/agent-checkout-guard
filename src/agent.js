@@ -11,11 +11,11 @@ export const SHOPPING_LIST = [
 
 export const UNCLEARED_CHARGE = { merchantId: 'unlisted-store', item: 'Unrecognized charge', amountCents: 14999 };
 
-const UNLISTED_MERCHANT_ID = 'unlisted-store';
+const OVERREACH_MERCHANT_ID = 'grocer';
+const SETTLE_STEPS = 4;
 const STOP_CODES = new Set(['no_access', 'paused']);
 const OVERREACH_SCENARIOS = [
-  { id: 'unlisted_merchant', label: 'buy from a merchant that is not on your list' },
-  { id: 'over_budget', label: 'spend more than your budget' },
+  { id: 'skip_clearance', label: 'charge without being cleared' },
   { id: 'price_raised', label: 'raise the price at checkout' },
   { id: 'wrong_item', label: 'swap the item at checkout' },
   { id: 'wrong_merchant', label: 'switch merchants at checkout' },
@@ -32,6 +32,7 @@ export class MockAgent {
   constructor(guard, { stepMs = 1800, list = SHOPPING_LIST } = {}) {
     this.guard = guard;
     this.stepMs = stepMs;
+    this.settleMs = stepMs * SETTLE_STEPS;
     this.list = list;
   }
 
@@ -58,6 +59,13 @@ export class MockAgent {
     this.guard.setAgentStatus(false, message, logMessage);
   }
 
+  // The merchant settles an executed purchase a little later, so its hold is visible until then.
+  #settleLater(purchase) {
+    if (purchase.status !== 'held') return;
+    if (this.settleMs === 0) this.guard.settleCharge(purchase.id);
+    else setTimeout(() => this.guard.settleCharge(purchase.id), this.settleMs).unref();
+  }
+
   // Returns the purchase in its final state, or null if this run was stopped while waiting.
   async #buy(runId, token, { final, ...quote }) {
     const { guard } = this;
@@ -69,7 +77,9 @@ export class MockAgent {
     }
     const current = guard.getPurchase(purchase.id);
     if (current.status !== 'authorized') return current;
-    return guard.checkout({ token, purchaseId: purchase.id, ...quote, ...final });
+    const executed = guard.checkout({ token, purchaseId: purchase.id, ...quote, ...final });
+    this.#settleLater(executed);
+    return executed;
   }
 
   // The agent keeps its token for the whole run, as an agent holding a card would.
@@ -92,24 +102,19 @@ export class MockAgent {
     this.#finish('Finished the shopping list.', 'Finished the shopping list.');
   }
 
-  #overreachStep(id, token) {
-    const { rules, purchases } = this.guard;
-    const agentMerchants = this.guard.agentLimits(token)?.allowedMerchantIds ?? rules.allowedMerchantIds;
-    const merchantId = rules.allowedMerchantIds.find((m) => agentMerchants.includes(m)) ?? 'grocer';
-    const quote = { merchantId, item: 'Phone case', amountCents: 100, overreach: true };
+  #overreachStep(id) {
+    const quote = { merchantId: OVERREACH_MERCHANT_ID, item: 'Phone case', amountCents: 100, overreach: true };
     switch (id) {
-      case 'unlisted_merchant':
-        return { ...quote, merchantId: UNLISTED_MERCHANT_ID, item: 'Gift cards', amountCents: 999 };
-      case 'over_budget':
-        return { ...quote, item: 'Designer watch', amountCents: rules.budgetCents + 100 };
+      case 'skip_clearance':
+        return { id: 'not-a-cleared-purchase', merchantId: OVERREACH_MERCHANT_ID, item: 'Gift cards', amountCents: 999 };
       case 'price_raised':
         return { ...quote, final: { amountCents: 9900 } };
       case 'wrong_item':
         return { ...quote, final: { item: 'Gift cards' } };
       case 'wrong_merchant':
-        return { ...quote, final: { merchantId: MERCHANTS.find((m) => m.id !== merchantId).id } };
+        return { ...quote, final: { merchantId: MERCHANTS.find((m) => m.id !== OVERREACH_MERCHANT_ID).id } };
       default:
-        return purchases.findLast((p) => p.status === 'completed' && p.cleared) ?? null;
+        return this.guard.purchases.findLast((p) => ['completed', 'held'].includes(p.status) && p.cleared) ?? null;
     }
   }
 
@@ -117,18 +122,18 @@ export class MockAgent {
     const { guard } = this;
     let scenario = OVERREACH_SCENARIOS[this.#overreachIndex];
     this.#overreachIndex = (this.#overreachIndex + 1) % OVERREACH_SCENARIOS.length;
-    let step = this.#overreachStep(scenario.id, token);
+    let step = this.#overreachStep(scenario.id);
     if (!step) {
       // There is nothing to charge twice yet, so use the first scenario instead.
       [scenario] = OVERREACH_SCENARIOS;
-      step = this.#overreachStep(scenario.id, token);
+      step = this.#overreachStep(scenario.id);
     }
 
     guard.setAgentStatus(true, `Overreach test: trying to ${scenario.label}.`, `Overreach test: tried to ${scenario.label}.`);
     await sleep(this.stepMs);
     if (runId !== this.#runId) return;
 
-    const result = scenario.id === 'duplicate'
+    const result = ['duplicate', 'skip_clearance'].includes(scenario.id)
       ? guard.checkout({ token, purchaseId: step.id, merchantId: step.merchantId, item: step.item, amountCents: step.amountCents, overreach: true })
       : await this.#buy(runId, token, step);
     if (!result) return;

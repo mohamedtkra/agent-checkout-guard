@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { MockAgent, UNCLEARED_CHARGE } from '../src/agent.js';
 import { createGuard } from '../testing/harness.js';
 
-const RULES = { budgetCents: 10000, allowedMerchantIds: ['grocer'], approvalCents: 5000 };
+const RULES = { budgetCents: 10000, approvalCents: 5000 };
 
 function activeGuard() {
   const guard = createGuard();
@@ -40,7 +40,7 @@ test('clearing a purchase does not charge it', () => {
   const guard = activeGuard();
   assert.equal(attempt(guard).status, 'authorized');
   assert.equal(guard.snapshot().spentCents, 0);
-  assert.equal(guard.snapshot().heldCents, 2000);
+  assert.equal(guard.snapshot().heldCents, 0);
 });
 
 test('a final price above the cleared price is blocked and logged', () => {
@@ -96,8 +96,8 @@ test('a final price that cannot be checked is blocked rather than treated as low
 test('a lower final price still has to fit the current rules', () => {
   const guard = activeGuard();
   const cleared = attempt(guard);
-  guard.setRules({ ...RULES, allowedMerchantIds: [] });
-  assert.equal(finalize(guard, cleared, { amountCents: 1000 }).code, 'rules');
+  guard.setRules({ ...RULES, budgetCents: 500 });
+  assert.equal(finalize(guard, cleared, { amountCents: 1000 }).code, 'allocation');
   assert.equal(guard.getPurchase(cleared.id).amountCents, 2000);
 });
 
@@ -150,10 +150,10 @@ test('a denied purchase cannot be charged', () => {
 test('final checkout rechecks rules that changed after clearance', () => {
   const guard = activeGuard();
   const cleared = attempt(guard);
-  guard.setRules({ ...RULES, allowedMerchantIds: [] });
+  guard.setRules({ ...RULES, budgetCents: 500 });
   const result = finalize(guard, cleared);
   assert.equal(result.status, 'blocked');
-  assert.equal(result.code, 'rules');
+  assert.equal(result.code, 'allocation');
 });
 
 test('final checkout requires approval if the approval amount dropped after clearance', () => {
@@ -223,19 +223,18 @@ test('every overreach scenario is stopped and nothing is charged', async () => {
   const guard = activeGuard();
   chargedPurchase(guard);
   const agent = new MockAgent(guard, { stepMs: 0 });
-  for (let press = 0; press < 6; press += 1) await agent.simulateOverreach(guard.agentToken());
+  for (let press = 0; press < 5; press += 1) await agent.simulateOverreach(guard.agentToken());
 
   const attempts = guard.purchases.filter((p) => p.overreach);
-  assert.equal(attempts.length, 6);
+  assert.equal(attempts.length, 5);
   assert.ok(attempts.every((p) => p.status === 'blocked'));
-  assert.deepEqual(attempts.map((p) => p.code), ['rules', 'allocation', 'mismatch', 'mismatch', 'mismatch', 'duplicate']);
+  assert.deepEqual(attempts.map((p) => p.code), ['not_cleared', 'mismatch', 'mismatch', 'mismatch', 'duplicate']);
   assert.equal(guard.snapshot().spentCents, 2000);
   assert.equal(guard.paused, false);
 });
 
-test('the overreach button still blocks with every merchant allowed', async () => {
+test('the first overreach press is blocked with nothing charged yet', async () => {
   const guard = createGuard();
-  guard.setRules({ ...RULES, allowedMerchantIds: ['grocer', 'pharmacy', 'electronics'] });
   guard.grantAccess();
   await new MockAgent(guard, { stepMs: 0 }).simulateOverreach(guard.agentToken());
   assert.equal(guard.purchases[0].status, 'blocked');
@@ -282,7 +281,7 @@ test('a refund returns the money to the budget and a decline does not', () => {
 
 test('a purchase with no charge can be reported but cannot be refunded', () => {
   const guard = activeGuard();
-  const blocked = guard.attempt({ token: guard.agentToken(), merchantId: 'electronics', item: 'Item', amountCents: 100 });
+  const blocked = guard.attempt({ token: 'not-a-token', merchantId: 'grocer', item: 'Item', amountCents: 100 });
   const { id, amountCents } = guard.reportProblem(blocked.id, { reason: 'unauthorized' });
   assert.equal(amountCents, 0);
   guard.advanceRefund(id);

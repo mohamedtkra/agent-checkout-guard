@@ -5,6 +5,7 @@ const STATUS_LABELS = {
   blocked: 'Blocked',
   pending: 'Needs approval',
   authorized: 'Cleared',
+  held: 'On hold',
   denied: 'Denied',
   canceled: 'Canceled',
   refunded: 'Refunded',
@@ -13,7 +14,8 @@ const CONNECTION_LABELS = { active: 'Active', expired: 'Expired', revoked: 'Revo
 const ACTOR_LABELS = { customer: 'You', agent: 'Agent', guard: 'Guard', payment: 'Test payment', refund: 'Refunds', reminder: 'Reminder', clock: 'Test clock', merchant: 'Merchant', security: 'Security' };
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CONNECTION_DAYS = 30;
-const PARENT_TABS = { report: 'activity', refund: 'refunds', purchase: 'agent', merchants: 'agent', connect: 'agents' };
+const PARENT_TABS = { report: 'activity', refund: 'refunds', purchase: 'agent', connect: 'agents' };
+const APPROVAL_WARNING = "Approval doesn't reserve funds; this can still fail if your limit is used up first.";
 
 const money = (cents) => `$${(cents / 100).toFixed(2)}`;
 const toCents = (value) => Math.round(Number(value) * 100);
@@ -157,8 +159,16 @@ function purchaseCard(purchase) {
     el('span', 'muted', purchase.overreach ? `${purchase.merchantName} · Overreach test` : purchase.merchantName),
   );
   const meta = el('div', 'card-row meta');
-  meta.append(merchant, el('span', `tag ${purchase.flagged ? 'flag' : purchase.status}`, purchase.flagged ? 'Flagged' : STATUS_LABELS[purchase.status]));
+  const declined = purchase.reason.startsWith('Declined at checkout');
+  let tagText = declined ? 'Declined' : STATUS_LABELS[purchase.status];
+  if (purchase.flagged) tagText = 'Flagged';
+  meta.append(merchant, el('span', `tag ${purchase.flagged ? 'flag' : purchase.status}`, tagText));
   card.append(product, meta);
+  if (purchase.categoryIcon) {
+    const category = el('span', 'merchant category-label');
+    category.append(image('category-icon', purchase.categoryIcon), el('span', 'muted', purchase.category));
+    card.append(category);
+  }
   if (purchase.reason) card.append(el('p', 'reason', purchase.reason));
   if (wasCharged(purchase)) card.append(button('link', 'View purchase details', () => openPurchase(purchase.id)));
   return card;
@@ -224,7 +234,7 @@ function approvalCard(purchase) {
   const countdown = purchase.reminder ?? `This request expires in ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}`;
   card.append(el('p', 'reason', `Requested by ${purchase.agentName}.`));
   card.append(el('p', 'countdown', `${countdown}, on ${day(purchase.expiresAt)}.`));
-  card.append(el('p', 'reason', `If approved, ${money(state.remainingCents)} of your budget stays available.`));
+  card.append(el('p', 'reason approval-warning', APPROVAL_WARNING));
   const actions = el('div', 'actions');
   const decide = (approve) => async () => {
     actions.querySelectorAll('button').forEach((node) => { node.disabled = true; });
@@ -252,6 +262,58 @@ function renderHeader() {
   $('#meter-text').textContent = `${money(spentCents)} spent · ${money(heldCents)} held · ${money(remainingCents)} left of ${money(rules.budgetCents)}`;
 }
 
+function spendBar(spentCents, heldCents, scaleCents, label) {
+  const bar = el('div', 'spend-bar');
+  bar.title = label;
+  bar.setAttribute('role', 'img');
+  bar.setAttribute('aria-label', label);
+  [['spent', spentCents], ['held', heldCents]].filter(([, cents]) => cents > 0).forEach(([kind, cents]) => {
+    const segment = el('span', kind);
+    segment.style.width = `${scaleCents ? Math.min(100, (cents / scaleCents) * 100) : 0}%`;
+    bar.append(segment);
+  });
+  return bar;
+}
+
+function stats(rows) {
+  const list = el('dl', 'stats');
+  list.append(...rows.map(([label, cents]) => {
+    const stat = el('div', 'stat');
+    stat.append(el('dt', '', label), el('dd', '', money(cents)));
+    return stat;
+  }));
+  return list;
+}
+
+function renderSpending() {
+  const { spendingByAgent, spendingByCategory } = state;
+  $('#spending-agents').replaceChildren(...(spendingByAgent.length ? spendingByAgent.map((row) => {
+    const card = el('li', 'card');
+    const head = el('div', 'merchant-head');
+    head.append(image('logo', row.icon), el('strong', '', row.name));
+    const label = `${row.name}: ${money(row.spentCents)} spent, ${money(row.heldCents)} on hold, ${money(row.remainingCents)} remaining of ${money(row.allocationCents)}`;
+    card.append(head, spendBar(row.spentCents, row.heldCents, row.allocationCents, label), stats([
+      [row.shared ? 'Shared' : 'Allocation', row.allocationCents],
+      ['Spent', row.spentCents],
+      ['On hold', row.heldCents],
+      ['Remaining', row.remainingCents],
+    ]));
+    return card;
+  }) : [el('li', 'empty', 'No agents connected yet.')]));
+
+  const largest = Math.max(...spendingByCategory.map((row) => row.spentCents + row.heldCents), 0);
+  $('#spending-categories').replaceChildren(...(spendingByCategory.length ? spendingByCategory.map((row) => {
+    const card = el('li', 'card');
+    const head = el('div', 'card-row');
+    const name = el('span', 'merchant');
+    name.append(image('category-icon', row.icon), el('strong', '', row.category));
+    head.append(name, el('span', 'amount', money(row.spentCents + row.heldCents)));
+    const detail = `${money(row.spentCents)} spent · ${money(row.heldCents)} on hold`;
+    card.append(head, spendBar(row.spentCents, row.heldCents, largest, `${row.category}: ${detail}`), el('p', 'reason', detail));
+    return card;
+  }) : [el('li', 'empty', 'No spending yet.')]));
+}
+
 function renderHome() {
   const { allocation, holds } = state;
   const percent = (cents) => (allocation.totalCents ? Math.min(100, (cents / allocation.totalCents) * 100) : 0);
@@ -267,11 +329,7 @@ function renderHome() {
     stat.append(el('dt', '', label), el('dd', '', money(cents)));
     return stat;
   }));
-  $('#home-shares').replaceChildren(...allocation.shares.map((share) => {
-    const row = el('p', 'card-row share-row');
-    row.append(el('span', 'muted', share.shortName), el('span', '', `${money(share.usedCents)} used of ${money(share.shareCents)}`));
-    return row;
-  }));
+  renderSpending();
   $('#holds').replaceChildren(...(holds.length ? holds.map((hold) => {
     const card = el('li', 'card');
     const row = el('div', 'card-row');
@@ -325,7 +383,6 @@ function connectionCard(connection) {
   card.append(head, detailList([
     ['Budget', money(permissions.budgetCents)],
     ['Spend so far', money(connection.spentCents)],
-    ['Allowed merchants', permissions.allowedMerchants.join(', ') || 'None'],
     ['Ask for approval above', money(permissions.approvalCents)],
     ['Approval requests expire after', `${permissions.approvalExpiryDays} days`],
     ['Connection expires', utcDay(permissions.connectionExpiresAt)],
@@ -407,19 +464,6 @@ function fillLimitsForm() {
   const expiry = connection?.permissions.connectionExpiresAt ?? new Date(Date.parse(state.now) + DEFAULT_CONNECTION_DAYS * DAY_MS).toISOString();
   $('#limit-expiry').value = expiry.slice(0, 10);
   $('#limit-expiry').min = state.now.slice(0, 10);
-
-  const allowed = state.merchants.filter((merchant) => state.rules.allowedMerchantIds.includes(merchant.id));
-  $('#limit-merchants').replaceChildren(...(allowed.length ? allowed.map((merchant) => {
-    const label = el('label', 'check');
-    const input = el('input');
-    input.type = 'checkbox';
-    input.value = merchant.id;
-    input.checked = limits.allowedMerchantIds.includes(merchant.id);
-    const text = el('span');
-    text.append(el('strong', '', merchant.name), el('span', 'muted', merchant.category));
-    label.append(input, image('logo large', merchant.logo), text);
-    return label;
-  }) : [el('p', 'empty', 'No merchants are allowed on your Rules screen yet.')]));
 }
 
 function renderConsent(preview) {
@@ -427,7 +471,6 @@ function renderConsent(preview) {
   $('#consent-statement').textContent = statement;
   $('#consent-details').replaceChildren(detailList([
     ['Budget', money(permissions.budgetCents)],
-    ['Allowed merchants', permissions.allowedMerchants.join(', ') || 'None'],
     ['Ask for approval above', money(permissions.approvalCents)],
     ['Approval requests expire after', `${permissions.approvalExpiryDays} days`],
     ['Connection expires', utcDay(permissions.connectionExpiresAt)],
@@ -457,91 +500,28 @@ function renderRules() {
   ]));
   $('#budget').max = (credit.availableCents / 100).toFixed(2);
 
-  const active = activeConnections();
-  const serialized = JSON.stringify([state.rules, state.agentShares, active.map((c) => c.agentId)]);
+  const serialized = JSON.stringify([state.rules, state.agentShares]);
   if (formDirty || serialized === renderedRules) return;
   renderedRules = serialized;
-  $('#agent-shares').replaceChildren(...(active.length ? active.map((connection) => {
+  $('#agent-shares').replaceChildren(...state.demoAgents.map((agent) => {
     const label = el('label', 'share-field');
     const input = el('input');
     input.type = 'number';
     input.inputMode = 'decimal';
     input.min = '0';
     input.step = '0.01';
-    input.dataset.agentShare = connection.agentId;
-    const share = state.agentShares[connection.agentId];
+    input.dataset.agentShare = agent.id;
+    const share = state.agentShares[agent.id];
     if (share !== undefined) input.value = (share / 100).toFixed(2);
     const box = el('span', 'money-input');
     box.append(el('span', '', '$'), input);
-    label.append(el('span', '', connection.shortName), box);
+    const name = el('span', 'merchant');
+    name.append(image('logo', agent.icon), el('span', '', agent.shortName));
+    label.append(name, box);
     return label;
-  }) : [el('p', 'muted', 'Connect an agent to split your allocation.')]));
+  }));
   $('#budget').value = (state.rules.budgetCents / 100).toFixed(2);
   $('#approval').value = (state.rules.approvalCents / 100).toFixed(2);
-  const categories = [...new Set(state.merchants.map((merchant) => merchant.category))];
-  $('#merchant-options').replaceChildren(...categories.map((category) => {
-    const group = el('div', 'category');
-    const head = el('label', 'category-head');
-    const all = el('input');
-    all.type = 'checkbox';
-    all.dataset.category = category;
-    head.append(all, el('strong', '', `All ${category}`));
-    group.append(head, ...state.merchants.filter((merchant) => merchant.category === category).map((merchant) => {
-      const label = el('label', 'check');
-      const input = el('input');
-      input.type = 'checkbox';
-      input.value = merchant.id;
-      input.dataset.merchant = merchant.id;
-      input.checked = state.rules.allowedMerchantIds.includes(merchant.id);
-      const text = el('span');
-      text.append(el('strong', '', merchant.name), el('span', 'muted', merchant.about));
-      label.append(input, image('logo large', merchant.logo), text);
-      return label;
-    }));
-    return group;
-  }));
-  syncCategories();
-}
-
-function syncCategories() {
-  document.querySelectorAll('#merchant-options .category').forEach((group) => {
-    const boxes = [...group.querySelectorAll('input[data-merchant]')];
-    const all = group.querySelector('input[data-category]');
-    all.checked = boxes.every((box) => box.checked);
-    all.indeterminate = !all.checked && boxes.some((box) => box.checked);
-  });
-}
-
-function renderMerchantSettings() {
-  document.querySelectorAll('#merchant-settings input').forEach((input) => {
-    input.checked = state.merchantAgents[input.dataset.merchantId].includes(input.value);
-  });
-}
-
-function buildMerchantSettings() {
-  $('#merchant-settings').replaceChildren(...state.merchants.map((merchant) => {
-    const card = el('li', 'card');
-    const head = el('div', 'merchant-head');
-    const name = el('div');
-    name.append(el('strong', '', merchant.name), el('p', 'muted', merchant.category));
-    head.append(image('logo large', merchant.logo), name);
-    card.append(head);
-    state.agentCompanies.forEach((company) => {
-      const label = el('label', 'check compact');
-      const input = el('input');
-      input.type = 'checkbox';
-      input.value = company.id;
-      input.dataset.merchantId = merchant.id;
-      input.addEventListener('change', () => {
-        const agentCompanyIds = [...card.querySelectorAll('input:checked')].map((box) => box.value);
-        act(`/api/merchants/${merchant.id}/agents`, { agentCompanyIds });
-      });
-      const agent = state.demoAgents.find((a) => a.companyId === company.id);
-      label.append(input, el('span', '', `${company.name} (${agent.shortName})`));
-      card.append(label);
-    });
-    return card;
-  }));
 }
 
 function renderShopAgents() {
@@ -693,7 +673,6 @@ function render() {
   renderRefunds();
   renderRefundDetail();
   renderPurchaseDetail();
-  renderMerchantSettings();
 }
 
 function setLive(isLive) {
@@ -751,10 +730,7 @@ function startApp(user) {
   events.onmessage = (event) => {
     const firstState = !state;
     state = JSON.parse(event.data);
-    if (firstState) {
-      buildReportReasons();
-      buildMerchantSettings();
-    }
+    if (firstState) buildReportReasons();
     render();
   };
 }
@@ -763,7 +739,6 @@ function limitsFromForm() {
   return {
     budgetCents: toCents($('#limit-budget').value),
     approvalCents: toCents($('#limit-approval').value),
-    allowedMerchantIds: [...document.querySelectorAll('#limit-merchants input:checked')].map((input) => input.value),
     connectionExpiresOn: $('#limit-expiry').value,
   };
 }
@@ -840,26 +815,15 @@ $('#connect-back').addEventListener('click', cancelConnect);
 
 $('#rules-form').addEventListener('input', () => { formDirty = true; });
 
-$('#merchant-options').addEventListener('change', ({ target }) => {
-  if (target.dataset.category) {
-    target.closest('.category').querySelectorAll('input[data-merchant]').forEach((box) => { box.checked = target.checked; });
-  }
-  syncCategories();
-});
-
-$('#open-merchants').addEventListener('click', () => showTab('merchants'));
-$('#merchants-back').addEventListener('click', () => showTab('agent'));
 $('#purchase-back').addEventListener('click', () => showTab(purchaseReturnTab));
 
 onSubmit('#rules-form', async () => {
-  const allowedMerchantIds = [...document.querySelectorAll('#merchant-options input[data-merchant]:checked')].map((input) => input.value);
   const agentShares = Object.fromEntries([...document.querySelectorAll('input[data-agent-share]')]
     .filter((input) => input.value !== '')
     .map((input) => [input.dataset.agentShare, toCents(input.value)]));
   await post('/api/rules', {
     budgetCents: toCents($('#budget').value),
     approvalCents: toCents($('#approval').value),
-    allowedMerchantIds,
     agentShares,
   });
   formDirty = false;

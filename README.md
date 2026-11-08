@@ -2,11 +2,11 @@
 
 > **Status: early prototype.** It runs locally with mock data only.
 
-Agent Checkout Guard is a customer-facing web app that lets a person give an AI shopping agent permission to pay with a tokenized card, within rules they set: a budget, allowed merchants, and approval required above a set amount. The customer approves purchases from their phone, sees a live log of everything the agent did, and can revoke access at any time.
+Agent Checkout Guard is a customer-facing web app that lets a person give an AI shopping agent permission to pay with a tokenized card, within rules they set: a budget and approval required above a set amount. The customer approves purchases from their phone, sees a live log of everything the agent did, and can revoke access at any time.
 
 **Target users:** busy consumers who want an agent to handle routine purchases without risking overspending or fraud.
 
-**Demo only: no real accounts or payments.** It uses mock merchants and test card tokens, and it never asks for a real password or card number.
+**Demo only: no real accounts or payments.** It uses mock merchants and test card tokens, and it never asks for a real password or card number. The ChatGPT and Gemini agents are simulated. This project is not connected to or affiliated with OpenAI or Google.
 
 ## Documentation
 
@@ -39,7 +39,7 @@ npm test
 ### Try it
 
 1. Sign in with any made-up email and the code shown on screen.
-2. On **Agents**, connect a demo agent. Enter the step-up code, set its limits, and review the consent screen. This screen also shows your agent allocation and open holds. Change the allocation or split it per agent on **Rules**.
+2. On **Agents**, connect a demo agent. Enter the step-up code, set its limits, and review the consent screen. This screen also shows your agent allocation, open holds, and spending by agent and category. Change the allocation or split it by company on **Rules**.
 3. On **Shop**, choose the agent and send it shopping. It tries six purchases at mock merchants.
 4. When a purchase needs your decision, the app opens **Approve**.
 5. While a purchase waits for approval, use **Simulate next day** on **Shop** to see the reminders and the auto-deny on day 3.
@@ -48,7 +48,6 @@ npm test
 8. On **Activity**, use **Report a problem** on a purchase, then follow the request on **Refunds** with **Simulate next step**.
 9. On a paid purchase, use **View purchase details** to see the item picture, its details, and the merchant's information.
 10. On **Agents**, connect a second agent, then try **Edit permissions** or **Revoke**. Revoking one agent leaves the others working.
-11. On **Shop**, open **Merchant settings (mock)** to see merchants refuse agent companies they don't accept.
-12. Use **Reset demo** on **Shop** to clear purchases and rules. Connected agents and the audit log are kept.
+11. Use **Reset demo** on **Shop** to clear purchases and rules. Connected agents and the audit log are kept.
 
 Data is stored in `data/`, which is not committed. To start over completely, stop the server and delete that folder. The server only accepts connections from this computer.
