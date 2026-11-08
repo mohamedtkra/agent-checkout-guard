@@ -2,9 +2,11 @@
 
 > **Status: pre-implementation.** This repository holds the project docs. There is no code yet.
 
-Agent Checkout Guard is a planned safeguard for AI agents that make purchases. The working idea is to check a purchase against rules set by a person before the agent can complete it.
+Agent Checkout Guard is a customer-facing web app that lets a person give an AI shopping agent permission to pay with a tokenized card, within rules they set: a budget, allowed merchants, and approval required above a set amount. The customer approves purchases from their phone, sees a live log of everything the agent did, and can revoke access at any time.
 
-This description is a working premise and is still to be confirmed in the [PRD](docs/prd.md).
+**Target users:** busy consumers who want an agent to handle routine purchases without risking overspending or fraud.
+
+**Mock merchants and test card tokens only, no real payments.**
 
 ## Documentation
 

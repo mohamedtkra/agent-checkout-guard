@@ -9,3 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Initial project structure: README, changelog, and draft docs (one-pager, PRD, decisions, metrics, retro).
+- MIT license.
+
+### Changed
+
+- Replaced the assumed product description in the README and one-pager with the confirmed one.
