@@ -180,6 +180,19 @@ main { padding: 20px 16px; }
 .reminder-notice .button { flex: none; color: var(--text); }
 .log-entry.reminder { border-left-color: var(--amber); }
 
+.meter.large { height: 12px; margin-top: 0; border-radius: 6px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 12px 0 0; }
+.stat dt { color: var(--muted); font-size: 0.74rem; }
+.stat dd { margin: 0; font-size: 0.92rem; font-variant-numeric: tabular-nums; font-weight: 700; }
+.share-row { margin-top: 8px; font-size: 0.86rem; }
+.section-title { margin-top: 28px; }
+.credit-summary { margin-bottom: 18px; }
+.credit-summary .details { margin-top: 0; }
+.credit-summary .detail-row:first-child { border-top: 0; }
+.share-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; font-weight: 400; }
+.share-field .money-input { width: 150px; margin-top: 0; }
+.share-field input { width: 100%; height: 42px; border: 0; background: transparent; color: inherit; font: inherit; }
+
 .signin-title { margin-bottom: 4px; font-size: 1.5rem; }
 .notice { margin-bottom: 16px; padding: 10px 12px; border-radius: 10px; background: var(--grey-soft); color: var(--grey-ink); }
 .text-input { display: block; width: 100%; height: 46px; margin-top: 6px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: inherit; font: inherit; font-weight: 400; }

@@ -21,6 +21,19 @@ A running log of significant project decisions. Add new entries at the top, and 
 
 ## Log
 
+## 007: Cap agent spending with an allocation of available credit, and place holds on open intents
+
+- **Date:** 2026-11-08
+- **Status:** Accepted
+
+**Context:** Agents act independently and can open purchases at the same time. Checking only what has already been charged would let several intents each pass and together go over the customer's limit.
+
+**Decision:** Agent spending is capped by an allocation of the customer's available credit, optionally split per connected agent. The allocation can never exceed available credit. An open intent places a hold for its amount immediately, mirroring card authorization holds. A new intent is accepted only if charged amounts, open holds, and the new amount fit within the allocation, available credit, and the agent's share. Holds are released when an intent is denied, expires, or is revoked, and the difference is released when a charge comes in lower. Limits are checked again at final charge, so concurrent intents can't exceed the limit.
+
+**Alternatives considered:** Checking limits only at charge time would let approvals pile up against money that can't be spent. Keeping a separate budget beside the allocation would give customers two overlapping limits, so the Rules budget became the allocation.
+
+**Consequences:** Holds reduce what agents can spend until they are released, so a stalled intent ties up allocation for up to 3 days. Once a split is set, an agent without a share can't spend. Checking limits and placing a hold is atomic because it is one uninterrupted step in the single server process that handles each customer. Running more than one server process would need the check moved into a database transaction.
+
 ## 006: Merchants choose agent companies, and customers can allow by category
 
 - **Date:** 2026-11-08

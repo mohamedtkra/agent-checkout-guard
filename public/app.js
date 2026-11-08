@@ -91,6 +91,7 @@ async function act(path, body, success) {
 function showTab(name) {
   currentTab = name;
   const navTab = PARENT_TABS[name] ?? name;
+  $('#header-meter').hidden = name === 'agents';
   document.querySelectorAll('.screen').forEach((screen) => { screen.hidden = screen.id !== `tab-${name}`; });
   document.querySelectorAll('.tabs button').forEach((node) => {
     if (node.dataset.tab === navTab) node.setAttribute('aria-current', 'page');
@@ -249,6 +250,37 @@ function renderHeader() {
   $('#meter-spent').style.width = `${percent(spentCents)}%`;
   $('#meter-held').style.width = `${percent(heldCents)}%`;
   $('#meter-text').textContent = `${money(spentCents)} spent · ${money(heldCents)} held · ${money(remainingCents)} left of ${money(rules.budgetCents)}`;
+}
+
+function renderHome() {
+  const { allocation, holds } = state;
+  const percent = (cents) => (allocation.totalCents ? Math.min(100, (cents / allocation.totalCents) * 100) : 0);
+  $('#home-meter-spent').style.width = `${percent(allocation.spentCents)}%`;
+  $('#home-meter-held').style.width = `${percent(allocation.heldCents)}%`;
+  $('#home-stats').replaceChildren(...[
+    ['Allocation', allocation.totalCents],
+    ['Spent', allocation.spentCents],
+    ['On hold', allocation.heldCents],
+    ['Remaining', allocation.remainingCents],
+  ].map(([label, cents]) => {
+    const stat = el('div', 'stat');
+    stat.append(el('dt', '', label), el('dd', '', money(cents)));
+    return stat;
+  }));
+  $('#home-shares').replaceChildren(...allocation.shares.map((share) => {
+    const row = el('p', 'card-row share-row');
+    row.append(el('span', 'muted', share.shortName), el('span', '', `${money(share.usedCents)} used of ${money(share.shareCents)}`));
+    return row;
+  }));
+  $('#holds').replaceChildren(...(holds.length ? holds.map((hold) => {
+    const card = el('li', 'card');
+    const row = el('div', 'card-row');
+    row.append(el('strong', '', hold.item), el('span', 'amount', money(hold.amountCents)));
+    const merchant = el('span', 'merchant');
+    merchant.append(image('logo', hold.merchantLogo), el('span', 'muted', `${hold.merchantName} · ${hold.agentName}`));
+    card.append(row, merchant, el('p', 'reason', `Hold expires ${day(hold.expiresAt)}`));
+    return card;
+  }) : [el('li', 'empty', 'No open holds.')]));
 }
 
 function renderAlert() {
@@ -417,9 +449,33 @@ async function cancelConnect() {
 }
 
 function renderRules() {
-  const serialized = JSON.stringify(state.rules);
+  const { credit } = state;
+  $('#credit-summary').replaceChildren(detailList([
+    ['Credit limit', money(credit.creditLimitCents)],
+    ['Current balance', money(credit.balanceCents)],
+    ['Available credit', money(credit.availableCents)],
+  ]));
+  $('#budget').max = (credit.availableCents / 100).toFixed(2);
+
+  const active = activeConnections();
+  const serialized = JSON.stringify([state.rules, state.agentShares, active.map((c) => c.agentId)]);
   if (formDirty || serialized === renderedRules) return;
   renderedRules = serialized;
+  $('#agent-shares').replaceChildren(...(active.length ? active.map((connection) => {
+    const label = el('label', 'share-field');
+    const input = el('input');
+    input.type = 'number';
+    input.inputMode = 'decimal';
+    input.min = '0';
+    input.step = '0.01';
+    input.dataset.agentShare = connection.agentId;
+    const share = state.agentShares[connection.agentId];
+    if (share !== undefined) input.value = (share / 100).toFixed(2);
+    const box = el('span', 'money-input');
+    box.append(el('span', '', '$'), input);
+    label.append(el('span', '', connection.shortName), box);
+    return label;
+  }) : [el('p', 'muted', 'Connect an agent to split your allocation.')]));
   $('#budget').value = (state.rules.budgetCents / 100).toFixed(2);
   $('#approval').value = (state.rules.approvalCents / 100).toFixed(2);
   const categories = [...new Set(state.merchants.map((merchant) => merchant.category))];
@@ -626,6 +682,7 @@ function renderRefundDetail() {
 
 function render() {
   renderHeader();
+  renderHome();
   renderAlert();
   renderReminders();
   renderConnections();
@@ -796,10 +853,14 @@ $('#purchase-back').addEventListener('click', () => showTab(purchaseReturnTab));
 
 onSubmit('#rules-form', async () => {
   const allowedMerchantIds = [...document.querySelectorAll('#merchant-options input[data-merchant]:checked')].map((input) => input.value);
+  const agentShares = Object.fromEntries([...document.querySelectorAll('input[data-agent-share]')]
+    .filter((input) => input.value !== '')
+    .map((input) => [input.dataset.agentShare, toCents(input.value)]));
   await post('/api/rules', {
     budgetCents: toCents($('#budget').value),
     approvalCents: toCents($('#approval').value),
     allowedMerchantIds,
+    agentShares,
   });
   formDirty = false;
   toast('Rules saved.');

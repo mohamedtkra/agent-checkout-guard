@@ -41,8 +41,10 @@
         </div>
         <button id="signout-button" class="button" type="button">Sign out</button>
       </div>
-      <div class="meter" aria-hidden="true"><span id="meter-spent" class="meter-spent"></span><span id="meter-held" class="meter-held"></span></div>
-      <p id="meter-text" class="meter-text"></p>
+      <div id="header-meter">
+        <div class="meter" aria-hidden="true"><span id="meter-spent" class="meter-spent"></span><span id="meter-held" class="meter-held"></span></div>
+        <p id="meter-text" class="meter-text"></p>
+      </div>
     </header>
 
     <div id="alert" class="alert" role="alert" hidden></div>
@@ -50,7 +52,15 @@
 
     <main>
       <section id="tab-agents" class="screen" aria-labelledby="agents-title">
-        <h2 id="agents-title">Connected agents</h2>
+        <h2>Agent credit</h2>
+        <div class="card">
+          <div class="meter large" aria-hidden="true"><span id="home-meter-spent" class="meter-spent"></span><span id="home-meter-held" class="meter-held"></span></div>
+          <dl id="home-stats" class="stats"></dl>
+          <div id="home-shares"></div>
+        </div>
+        <h3>Open holds</h3>
+        <ul id="holds" class="cards"></ul>
+        <h2 id="agents-title" class="section-title">Connected agents</h2>
         <p class="lead">Each agent gets its own test card token and can only act within the permissions you sign.</p>
         <ul id="connections" class="cards"></ul>
         <h3>Connect a demo agent</h3>
@@ -103,11 +113,17 @@
       <section id="tab-rules" class="screen" aria-labelledby="nav-rules" hidden>
         <h2>Your rules</h2>
         <p class="lead">No agent can pay outside these limits, whatever its own permissions say.</p>
+        <div id="credit-summary" class="card credit-summary"></div>
         <form id="rules-form">
-          <label class="field" for="budget">Budget
-            <span class="hint">The most all agents can spend in total.</span>
+          <label class="field" for="budget">Agent allocation
+            <span class="hint">How much of your available credit agents may use in total.</span>
             <span class="money-input"><span>$</span><input id="budget" type="number" inputmode="decimal" min="0" step="0.01" required></span>
           </label>
+          <fieldset class="field">
+            <legend>Split per agent (optional)</legend>
+            <span class="hint">Leave every box empty to share the whole allocation. Once you enter a share, an agent left empty can't spend.</span>
+            <div id="agent-shares"></div>
+          </fieldset>
           <label class="field" for="approval">Ask me above
             <span class="hint">Purchases over this amount need your approval.</span>
             <span class="money-input"><span>$</span><input id="approval" type="number" inputmode="decimal" min="0" step="0.01" required></span>

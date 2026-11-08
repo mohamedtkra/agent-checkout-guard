@@ -96,7 +96,7 @@ export const PRODUCTS = {
   'USB charger': { description: 'Compact two-port wall charger.', color: 'White', size: '30 W', image: '/products/usb-charger.svg' },
   'Bulk pantry restock': { description: 'Rice, pasta, beans, and canned goods.', size: 'Large box', image: '/products/pantry-box.svg' },
   'Blood pressure monitor': { description: 'Automatic upper-arm monitor with memory.', color: 'Gray', size: 'Standard cuff', image: '/products/blood-pressure-monitor.svg' },
-  'Holiday food hamper': { description: 'A festive basket of sweet and savory treats.', size: 'Large', image: '/products/food-hamper.svg' },
+  'Holiday food hamper': { description: 'A luxury festive hamper for a large family gathering.', size: 'Extra large', image: '/products/food-hamper.svg' },
   'Phone case': { description: 'Slim shock-absorbing phone case.', color: 'Teal', size: '6.1 in', image: '/products/phone-case.svg' },
   'Gift cards': { description: 'Prepaid store gift cards.', image: '/products/gift-cards.svg' },
   'Designer watch': { description: 'Stainless steel analog wristwatch.', color: 'Silver', size: '40 mm', image: '/products/watch.svg' },

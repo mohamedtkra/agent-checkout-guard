@@ -1,6 +1,6 @@
 # Metrics
 
-**Status:** Draft. No baselines or targets have been set, and no data has been collected.
+**Status:** Draft. Limit breaches has a target of 0. No other baselines or targets have been set, and no data has been collected.
 
 ## Candidate metrics
 
@@ -17,6 +17,7 @@
 | Overreach attempts blocked | Share of out-of-bounds purchase attempts, simulated or real, that the guard blocks before any charge | TBD | TBD |
 | Time to refund | Time from a refund request being submitted to it reaching Refunded | TBD | TBD |
 | Refund rate | Share of charged purchases that end in a Refunded request | TBD | TBD |
+| Limit breaches | Number of charges that take agent spending past the allocation, available credit, or an agent's share | TBD | 0 |
 
 ## Measurement plan
 

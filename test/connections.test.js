@@ -74,7 +74,7 @@ test('a purchase outside the consent is blocked even when the rules allow it', (
 test('a purchase inside the consent is still blocked by the rules', () => {
   const { guard, a } = twoAgents();
   guard.setRules({ budgetCents: 1000, approvalCents: 1000, allowedMerchantIds: ['grocer'] });
-  assert.equal(buy(guard, a.token, 'grocer', 2000).code, 'rules');
+  assert.equal(buy(guard, a.token, 'grocer', 2000).code, 'allocation');
 });
 
 test('the lower approval amount of the consent and the rules applies', () => {
@@ -186,7 +186,7 @@ test('consent limits cannot go beyond the customer\'s rules', () => {
   const guard = createGuard();
   const valid = { budgetCents: 1000, approvalCents: 1000, allowedMerchantIds: ['grocer'], connectionExpiresOn: new Date(Date.now() + 5 * DAY_MS).toISOString().slice(0, 10) };
   assert.equal(guard.validatePermissions(valid).budgetCents, 1000);
-  assert.throws(() => guard.validatePermissions({ ...valid, budgetCents: 30000 }), /overall budget/);
+  assert.throws(() => guard.validatePermissions({ ...valid, budgetCents: 50001 }), /agent allocation/);
   assert.throws(() => guard.validatePermissions({ ...valid, approvalCents: 9000 }), /Approval amount/);
   assert.throws(() => guard.validatePermissions({ ...valid, allowedMerchantIds: ['audio'] }), /Rules screen/);
   assert.throws(() => guard.validatePermissions({ ...valid, connectionExpiresOn: '2020-01-01' }), /within the next/);

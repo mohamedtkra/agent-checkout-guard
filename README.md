@@ -39,7 +39,7 @@ npm test
 ### Try it
 
 1. Sign in with any made-up email and the code shown on screen.
-2. On **Agents**, connect a demo agent. Enter the step-up code, set its limits, and review the consent screen.
+2. On **Agents**, connect a demo agent. Enter the step-up code, set its limits, and review the consent screen. This screen also shows your agent allocation and open holds. Change the allocation or split it per agent on **Rules**.
 3. On **Shop**, choose the agent and send it shopping. It tries six purchases at mock merchants.
 4. When a purchase needs your decision, the app opens **Approve**.
 5. While a purchase waits for approval, use **Simulate next day** on **Shop** to see the reminders and the auto-deny on day 3.

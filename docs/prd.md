@@ -75,6 +75,13 @@ Other non-goals: TBD
 | R33 | Each connected agent gets its own test card token, valid only within its consent. The guard checks the token, the consent, and the rules on every purchase. | TBD |
 | R34 | A Connected agents page lists each agent with its permissions, connection date, last activity, and spend so far, with Edit permissions and Revoke. Revoking one agent does not affect the others. | TBD |
 | R35 | A "Demo - no real accounts or payments" banner appears on every screen, and the product never asks for real passwords or card numbers. | TBD |
+| R36 | The demo account has a mock credit limit, current balance, and available credit. | TBD |
+| R37 | On the Rules screen, the customer sets how much of their available credit agents may use in total, and can optionally split it per connected agent. The allocation can never exceed available credit. | TBD |
+| R38 | An open purchase intent, pending approval or about to charge, places a hold for its amount immediately. | TBD |
+| R39 | A new intent is accepted only if charged amounts, open holds, and the new amount fit within the agent allocation, available credit, and the agent's share if split. Otherwise it is blocked with the reason. | TBD |
+| R40 | A hold is released when its intent is denied, expires, or is revoked. A charge for less releases the difference. Limits are checked again at final charge. | TBD |
+| R41 | The hold check is atomic, so simultaneous intents cannot exceed a limit. | TBD |
+| R42 | The home screen shows a meter of allocation, spent, on hold, and remaining, plus a list of open holds with their expiry dates. | TBD |
 
 ## Key flow
 
@@ -96,6 +103,16 @@ See [decision 005](decisions.md).
 5. On Allow, a signed consent record is stored and the agent receives its own test card token.
 6. Each purchase is checked against the token, the signed consent, and the rules.
 7. The customer can edit permissions, which needs another step-up and signs a new consent, or revoke that agent alone.
+
+## Credit allocation and holds flow
+
+See [decision 007](decisions.md).
+
+1. The customer sets an agent allocation from their available credit, for example $500 of $3,800, and can split it per agent.
+2. When an agent opens a purchase intent, the guard checks charged amounts, open holds, and the new amount against every limit in one step.
+3. If it fits, a hold is placed immediately. If not, it is blocked with the reason, for example "Blocked: would exceed your $500 agent limit ($430 already used or on hold)".
+4. At final charge, the limits are checked again and the hold becomes spend. A lower final price releases the difference.
+5. If the intent is denied, expires, or is revoked, the hold is released.
 
 ## Approval expiry flow
 

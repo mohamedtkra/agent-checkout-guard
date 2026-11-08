@@ -31,6 +31,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Per-agent scoped test card tokens. The guard checks the token, the consent, and the rules on every purchase.
 - Connected agents page with permissions, connection date, last activity, spend, Edit permissions, and Revoke.
 - Decision 005, and a background section on the Agentic Commerce Protocol and AP2 in the PRD.
+- Mock credit limit, balance, and available credit on the demo account.
+- Agent allocation of available credit on the Rules screen, with an optional split per connected agent.
+- Holds placed on every open purchase intent, released when an intent is denied, expires, or is revoked, and partly released when a charge comes in lower.
+- Atomic limit checks, with tests that fire 10 intents at once.
+- Home screen meter showing allocation, spent, on hold, and remaining, plus open holds with expiry dates.
+- Decision 007, allocation and hold requirements in the PRD, and a limit breaches metric with a target of 0.
 
 ### Changed
 
@@ -42,3 +48,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A flagged charge now pauses all of a customer's agents.
 - The banner on every screen now reads "Demo - no real accounts or payments".
 - The project now depends on better-sqlite3.
+- The Rules budget is now the agent allocation, with a default of $500.

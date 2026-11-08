@@ -228,7 +228,7 @@ test('every overreach scenario is stopped and nothing is charged', async () => {
   const attempts = guard.purchases.filter((p) => p.overreach);
   assert.equal(attempts.length, 6);
   assert.ok(attempts.every((p) => p.status === 'blocked'));
-  assert.deepEqual(attempts.map((p) => p.code), ['rules', 'rules', 'mismatch', 'mismatch', 'mismatch', 'duplicate']);
+  assert.deepEqual(attempts.map((p) => p.code), ['rules', 'allocation', 'mismatch', 'mismatch', 'mismatch', 'duplicate']);
   assert.equal(guard.snapshot().spentCents, 2000);
   assert.equal(guard.paused, false);
 });
