@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { MockAgent, UNCLEARED_CHARGE } from '../src/agent.js';
-import { Guard } from '../src/guard.js';
+import { createGuard } from '../testing/harness.js';
 
 const RULES = { budgetCents: 10000, allowedMerchantIds: ['grocer'], approvalCents: 5000 };
 
 function activeGuard() {
-  const guard = new Guard();
+  const guard = createGuard();
   guard.setRules(RULES);
   guard.grantAccess();
   return guard;
@@ -209,9 +209,9 @@ test('a flagged charge cancels purchases still in progress', () => {
 });
 
 test('a flagged charge mid-run stops the mock agent', async () => {
-  const guard = new Guard();
+  const guard = createGuard();
   guard.grantAccess();
-  const run = new MockAgent(guard, { stepMs: 0 }).run();
+  const run = new MockAgent(guard, { stepMs: 0 }).run(guard.agentToken());
   while (!guard.purchases.some((p) => p.status === 'pending')) await new Promise((r) => setTimeout(r, 1));
   guard.recordUnclearedCharge(UNCLEARED_CHARGE);
   await run;
@@ -223,7 +223,7 @@ test('every overreach scenario is stopped and nothing is charged', async () => {
   const guard = activeGuard();
   chargedPurchase(guard);
   const agent = new MockAgent(guard, { stepMs: 0 });
-  for (let press = 0; press < 6; press += 1) await agent.simulateOverreach();
+  for (let press = 0; press < 6; press += 1) await agent.simulateOverreach(guard.agentToken());
 
   const attempts = guard.purchases.filter((p) => p.overreach);
   assert.equal(attempts.length, 6);
@@ -234,10 +234,10 @@ test('every overreach scenario is stopped and nothing is charged', async () => {
 });
 
 test('the overreach button still blocks with every merchant allowed', async () => {
-  const guard = new Guard();
+  const guard = createGuard();
   guard.setRules({ ...RULES, allowedMerchantIds: ['grocer', 'pharmacy', 'electronics'] });
   guard.grantAccess();
-  await new MockAgent(guard, { stepMs: 0 }).simulateOverreach();
+  await new MockAgent(guard, { stepMs: 0 }).simulateOverreach(guard.agentToken());
   assert.equal(guard.purchases[0].status, 'blocked');
 });
 

@@ -24,6 +24,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Agent companies, with merchants choosing which ones they accept on a mock Merchant settings screen. Purchases are blocked if the merchant does not accept the agent's company.
 - Purchase details screen with the item picture, item details, and merchant information.
 - Decision 006, and requirements for categories, agent companies, and purchase details in the PRD.
+- Demo accounts: sign-in with an email and a one-time code shown on screen, and sessions that expire after 30 minutes.
+- SQLite storage for users, sessions, agent connections, consents, tokens, the audit log, and purchase data, so it survives restarts.
+- Three labeled demo agents with original icons, connected through a step-up code and a consent screen.
+- AP2-style signed consent records, stored for each connection and verified on every purchase.
+- Per-agent scoped test card tokens. The guard checks the token, the consent, and the rules on every purchase.
+- Connected agents page with permissions, connection date, last activity, spend, Edit permissions, and Revoke.
+- Decision 005, and a background section on the Agentic Commerce Protocol and AP2 in the PRD.
 
 ### Changed
 
@@ -31,3 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Updated the PRD and metrics to match the confirmed product definition.
 - Purchases now clear the guard first and are charged only after a separate final checkout.
 - A lower final price is now allowed and logged. Only higher final prices are blocked.
+- Access is now per agent. Revoke moved from the header to each agent, and each demo agent belongs to one agent company.
+- A flagged charge now pauses all of a customer's agents.
+- The banner on every screen now reads "Demo - no real accounts or payments".
+- The project now depends on better-sqlite3.

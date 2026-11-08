@@ -6,7 +6,7 @@ Agent Checkout Guard is a customer-facing web app that lets a person give an AI 
 
 **Target users:** busy consumers who want an agent to handle routine purchases without risking overspending or fraud.
 
-**Mock merchants and test card tokens only, no real payments.**
+**Demo only: no real accounts or payments.** It uses mock merchants and test card tokens, and it never asks for a real password or card number.
 
 ## Documentation
 
@@ -21,9 +21,10 @@ Agent Checkout Guard is a customer-facing web app that lets a person give an AI 
 
 ## Getting started
 
-You need Node.js 20 or later. There are no packages to install.
+You need Node.js 20 or later.
 
 ```sh
+npm install
 npm start
 ```
 
@@ -37,16 +38,17 @@ npm test
 
 ### Try it
 
-1. On **Rules**, save the rules to give the agent access.
-2. On **Agent**, send the agent shopping. It tries six purchases at three mock merchants.
-3. When a purchase needs your decision, the app opens **Approve**.
-4. Watch **Activity**, or use **Revoke access** at any point.
-5. While a purchase waits for approval, use **Simulate next day** on **Agent** to see the reminders and the auto-deny on day 3.
-6. On **Agent**, use **Simulate agent overreach** to watch the guard block an out-of-bounds purchase. Each tap tries a different one.
-7. Use **Simulate charge that slips past the guard** to see a charge flagged in red, the agent paused, and the customer alerted.
+1. Sign in with any made-up email and the code shown on screen.
+2. On **Agents**, connect a demo agent. Enter the step-up code, set its limits, and review the consent screen.
+3. On **Shop**, choose the agent and send it shopping. It tries six purchases at mock merchants.
+4. When a purchase needs your decision, the app opens **Approve**.
+5. While a purchase waits for approval, use **Simulate next day** on **Shop** to see the reminders and the auto-deny on day 3.
+6. Use **Simulate agent overreach** on **Shop** to watch the guard block an out-of-bounds purchase. Each tap tries a different one.
+7. Use **Simulate charge that slips past the guard** to see a charge flagged in red, agents paused, and the customer alerted.
 8. On **Activity**, use **Report a problem** on a purchase, then follow the request on **Refunds** with **Simulate next step**.
 9. On a paid purchase, use **View purchase details** to see the item picture, its details, and the merchant's information.
-10. On **Agent**, change the **Agent company** or open **Merchant settings (mock)** to see merchants refuse agent companies they don't accept.
-11. Use **Reset demo** on **Agent** to start again.
+10. On **Agents**, connect a second agent, then try **Edit permissions** or **Revoke**. Revoking one agent leaves the others working.
+11. On **Shop**, open **Merchant settings (mock)** to see merchants refuse agent companies they don't accept.
+12. Use **Reset demo** on **Shop** to clear purchases and rules. Connected agents and the audit log are kept.
 
-Data is kept in memory, so restarting the server clears it. The server only accepts connections from this computer.
+Data is stored in `data/`, which is not committed. To start over completely, stop the server and delete that folder. The server only accepts connections from this computer.

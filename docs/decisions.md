@@ -34,6 +34,19 @@ A running log of significant project decisions. Add new entries at the top, and 
 
 **Consequences:** The product now has a merchant side, which the prototype represents with one mock settings screen and no merchant accounts. Allowing a category currently selects its merchants, so a merchant added to a category later would not be allowed automatically.
 
+## 005: Per-agent scoped tokens with step-up verification and signed consent
+
+- **Date:** 2026-11-08
+- **Status:** Accepted
+
+**Context:** Customers need to connect more than one agent, control each one separately, and have proof of what they allowed. One shared token per customer could not do that.
+
+**Decision:** Each connected agent gets its own test card token, valid only within its consent. Connecting an agent or editing its permissions requires a step-up one-time code, then a consent screen showing exactly what the agent may do. The consent is stored as a signed record. The guard checks the token, the signed consent, and the customer's rules on every purchase. Revoking one agent does not affect the others. The design is modeled on the Agentic Commerce Protocol, whose delegated payment tokens are limited by amount and expiry, and on AP2, whose signed Intent Mandate records what a person allowed an agent to do. Users, sessions, connections, consents, tokens, and the audit log are stored in SQLite. This supersedes the parts of decision 001 that kept data in memory and avoided dependencies.
+
+**Alternatives considered:** A single account-level token would make per-agent revocation and limits impossible. Consent stored as plain settings could not show that a record is unchanged. Implementing either protocol in full is more than the prototype needs, since it has no real payment network to talk to.
+
+**Consequences:** The prototype follows the ideas of these protocols but does not conform to or interoperate with either. Consents are signed by a key held on the server, on the customer's behalf after step-up, and not by a key on the customer's device. One-time codes are shown on screen, so sign-in proves nothing about identity and must stay demo-only. A flagged charge still pauses all of a customer's agents. Purchases in progress are canceled if the server restarts, because the mock agent does not survive it.
+
 ## 004: Allow lower final prices
 
 - **Date:** 2026-11-08
@@ -78,7 +91,7 @@ A running log of significant project decisions. Add new entries at the top, and 
 ## 001: Prototype behavior for open PRD questions
 
 - **Date:** 2026-11-08
-- **Status:** Proposed, partly superseded by 002
+- **Status:** Proposed, partly superseded by 002 and 005
 
 **Context:** The first prototype needed working behavior for questions the PRD leaves open.
 

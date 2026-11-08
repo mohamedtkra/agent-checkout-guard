@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { MockAgent } from '../src/agent.js';
-import { evaluate, Guard, GuardError } from '../src/guard.js';
+import { evaluate, GuardError } from '../src/guard.js';
+import { createGuard } from '../testing/harness.js';
 
 const RULES = { budgetCents: 10000, allowedMerchantIds: ['grocer'], approvalCents: 5000 };
 
 function activeGuard(rules = RULES) {
-  const guard = new Guard();
+  const guard = createGuard();
   guard.setRules(rules);
   guard.grantAccess();
   return guard;
@@ -140,9 +141,9 @@ async function untilPending(guard) {
 }
 
 test('the mock agent exercises each outcome with the default rules', async () => {
-  const guard = new Guard();
+  const guard = createGuard();
   guard.grantAccess();
-  const run = new MockAgent(guard, { stepMs: 0 }).run();
+  const run = new MockAgent(guard, { stepMs: 0 }).run(guard.agentToken());
   guard.decide((await untilPending(guard)).id, true);
   await run;
 
@@ -152,9 +153,9 @@ test('the mock agent exercises each outcome with the default rules', async () =>
 });
 
 test('the mock agent stops after access is revoked mid-run', async () => {
-  const guard = new Guard();
+  const guard = createGuard();
   guard.grantAccess();
-  const run = new MockAgent(guard, { stepMs: 0 }).run();
+  const run = new MockAgent(guard, { stepMs: 0 }).run(guard.agentToken());
   await untilPending(guard);
   guard.revokeAccess();
   await run;
@@ -165,8 +166,8 @@ test('the mock agent stops after access is revoked mid-run', async () => {
 });
 
 test('the mock agent cannot pay without access', async () => {
-  const guard = new Guard();
-  await new MockAgent(guard, { stepMs: 0 }).run();
+  const guard = createGuard();
+  await new MockAgent(guard, { stepMs: 0 }).run(guard.agentToken());
   assert.equal(guard.purchases.length, 1);
   assert.equal(guard.purchases[0].status, 'blocked');
 });

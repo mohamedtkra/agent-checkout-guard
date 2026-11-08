@@ -4,6 +4,13 @@ export const AGENT_COMPANIES = [
   { id: 'zephwick', name: 'Zephwick Agents' },
 ];
 
+// Demo agents only. The "-style" labels describe the kind of assistant being imitated.
+export const DEMO_AGENTS = [
+  { id: 'agent-a', name: 'Demo Agent A (ChatGPT-style assistant)', shortName: 'Demo Agent A', icon: '/agents/agent-a.svg', companyId: 'quillhop' },
+  { id: 'agent-b', name: 'Demo Agent B (Gemini-style assistant)', shortName: 'Demo Agent B', icon: '/agents/agent-b.svg', companyId: 'pennowl' },
+  { id: 'agent-c', name: 'Demo Agent C (shopping app)', shortName: 'Demo Agent C', icon: '/agents/agent-c.svg', companyId: 'zephwick' },
+];
+
 // All merchant details are invented for the prototype.
 export const MERCHANTS = [
   {
@@ -99,6 +106,7 @@ export const merchantFor = (id) => MERCHANTS.find((m) => m.id === id) ?? UNKNOWN
 export const productFor = (item) => (Object.hasOwn(PRODUCTS, item) ? PRODUCTS[item] : PLACEHOLDER_PRODUCT);
 
 export const ASSET_PATHS = [
+  ...DEMO_AGENTS.map((a) => a.icon),
   ...MERCHANTS.map((m) => m.logo),
   UNKNOWN_MERCHANT.logo,
   ...Object.values(PRODUCTS).map((p) => p.image),

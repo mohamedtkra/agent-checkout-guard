@@ -1,5 +1,8 @@
-import { randomBytes, randomUUID } from 'node:crypto';
-import { AGENT_COMPANIES, DEFAULT_MERCHANT_AGENTS, MERCHANTS, merchantFor, productFor } from './catalog.js';
+import { randomUUID } from 'node:crypto';
+import { AGENT_COMPANIES, DEFAULT_MERCHANT_AGENTS, DEMO_AGENTS, MERCHANTS, merchantFor, productFor } from './catalog.js';
+import { GuardError } from './errors.js';
+
+export { GuardError };
 
 export const DEFAULT_RULES = {
   budgetCents: 20000,
@@ -27,16 +30,11 @@ const APPROVAL_DAYS = 3;
 const REMINDER_COUNT = 2;
 const DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
 const MAX_NOTE_LENGTH = 500;
+const MAX_CONNECTION_DAYS = 365;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOLD_STATUSES = ['pending', 'authorized'];
 const COMMITTED_STATUSES = ['completed', ...HOLD_STATUSES];
-
-export class GuardError extends Error {
-  constructor(message, status = 400) {
-    super(message);
-    this.status = status;
-  }
-}
+const PERSISTED_FIELDS = ['rules', 'merchantAgents', 'purchases', 'refunds', 'alerts', 'paused'];
 
 const isCents = (value) => Number.isSafeInteger(value) && value >= 0;
 const money = (cents) => `$${(cents / 100).toFixed(2)}`;
@@ -73,13 +71,26 @@ export function evaluate(rules, committedCents, merchantId, amountCents) {
 }
 
 export class Guard {
-  #token = null;
   #waiters = new Map();
   #listeners = new Set();
   #clockOffsetMs = 0;
+  #auditFloor = 0;
+  #persist;
+  #appendAudit;
 
-  constructor() {
+  constructor({ connections, saved = null, log = [], persist = () => {}, appendAudit = () => 0 }) {
+    this.connections = connections;
+    this.#persist = persist;
+    this.#appendAudit = appendAudit;
     this.#clear();
+    if (saved) {
+      for (const field of PERSISTED_FIELDS) this[field] = saved[field];
+      this.#clockOffsetMs = saved.clockOffsetMs;
+      this.#auditFloor = saved.auditFloor;
+      this.log = log;
+      // No agent survives a restart to finish these, so they cannot be left holding budget.
+      if (this.#cancelHeld('The server restarted before this purchase finished.')) this.#persist(this.#serialize());
+    }
   }
 
   #nowMs() {
@@ -93,7 +104,6 @@ export class Guard {
   #clear() {
     this.#clockOffsetMs = 0;
     this.rules = structuredClone(DEFAULT_RULES);
-    this.agentCompanyId = AGENT_COMPANIES[0].id;
     this.merchantAgents = structuredClone(DEFAULT_MERCHANT_AGENTS);
     this.purchases = [];
     this.log = [];
@@ -103,29 +113,39 @@ export class Guard {
     this.agentStatus = { running: false, message: 'Ready to shop.' };
   }
 
+  #serialize() {
+    const state = { clockOffsetMs: this.#clockOffsetMs, auditFloor: this.#auditFloor };
+    for (const field of PERSISTED_FIELDS) state[field] = this[field];
+    return state;
+  }
+
   subscribe(listener) {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
   }
 
   #notify() {
+    this.#persist(this.#serialize());
     const state = this.snapshot();
     for (const listener of this.#listeners) listener(state);
   }
 
   #record(actor, message, purchase = null, flagged = false) {
-    this.log.push({
+    const entry = {
       id: randomUUID(),
       at: this.#nowIso(),
       actor,
       message,
       purchaseId: purchase?.id ?? null,
       flagged,
-    });
+    };
+    this.log.push(entry);
+    return this.#appendAudit(entry);
   }
 
-  #maskedToken() {
-    return this.#token ? `tok_test_••••${this.#token.slice(-4)}` : null;
+  recordEvent(actor, message) {
+    this.#record(actor, message);
+    this.#notify();
   }
 
   #sumCents(statuses, excludeId) {
@@ -134,7 +154,13 @@ export class Guard {
       .reduce((total, p) => total + p.amountCents, 0);
   }
 
-  #open({ merchantId, item, amountCents, overreach = false }) {
+  #sumAgentCents(purchase) {
+    return this.purchases
+      .filter((p) => COMMITTED_STATUSES.includes(p.status) && p.id !== purchase.id && p.connectionId === purchase.connectionId)
+      .reduce((total, p) => total + p.amountCents, 0);
+  }
+
+  #open({ merchantId, item, amountCents, overreach = false }, connection = null) {
     const merchant = merchantFor(merchantId);
     const product = productFor(item);
     const purchase = {
@@ -143,7 +169,9 @@ export class Guard {
       merchantId,
       merchantName: merchant.name,
       merchantLogo: merchant.logo,
-      agentCompanyName: this.#agentCompany().name,
+      connectionId: connection?.id ?? null,
+      agentCompanyId: connection?.companyId ?? null,
+      agentName: connection?.shortName ?? 'Unknown agent',
       item,
       description: product.description,
       color: product.color ?? null,
@@ -180,10 +208,12 @@ export class Guard {
     this.#record('guard', `Blocked ${purchase.item}: ${reason}`, purchase);
   }
 
-  #accessProblem(token) {
-    if (!token || token !== this.#token) return { code: 'no_access', reason: 'The agent does not have access.' };
-    if (this.paused) return { code: 'paused', reason: 'The agent is paused after a flagged charge.' };
-    return null;
+  // Checks the token and its signed consent, then whether the customer's agents are paused.
+  #authorize(token) {
+    const auth = this.connections.authorize(token, this.#nowMs());
+    if (auth.problem) return auth;
+    if (this.paused) return { ...auth, problem: { code: 'paused', reason: 'The agent is paused after a flagged charge.' } };
+    return auth;
   }
 
   #isDuplicate(purchase) {
@@ -196,18 +226,16 @@ export class Guard {
       && now - Date.parse(p.at) < DUPLICATE_WINDOW_MS);
   }
 
-  #agentCompany() {
-    return AGENT_COMPANIES.find((company) => company.id === this.agentCompanyId);
+  #merchantRefusesAgent(merchantId, companyId) {
+    return companyId !== null
+      && Object.hasOwn(this.merchantAgents, merchantId)
+      && !this.merchantAgents[merchantId].includes(companyId);
   }
 
-  #merchantRefusesAgent(merchantId) {
-    return Object.hasOwn(this.merchantAgents, merchantId)
-      && !this.merchantAgents[merchantId].includes(this.agentCompanyId);
-  }
-
-  #partnerProblem(merchantId) {
-    if (!this.#merchantRefusesAgent(merchantId)) return null;
-    return { code: 'merchant_agent', reason: `${merchantName(merchantId)} does not accept agents from ${this.#agentCompany().name}.` };
+  #partnerProblem(purchase) {
+    if (!this.#merchantRefusesAgent(purchase.merchantId, purchase.agentCompanyId)) return null;
+    const company = AGENT_COMPANIES.find((c) => c.id === purchase.agentCompanyId);
+    return { code: 'merchant_agent', reason: `${purchase.merchantName} does not accept agents from ${company.name}.` };
   }
 
   #agreedBy(purchase) {
@@ -231,13 +259,25 @@ export class Guard {
     return null;
   }
 
-  #rulesProblem(purchase, amountCents = purchase.amountCents) {
+  // A purchase has to fit both the customer's rules and this agent's signed consent.
+  #assess(purchase, amountCents, limits) {
     const committed = this.#sumCents(COMMITTED_STATUSES, purchase.id);
-    const { outcome, reason } = evaluate(this.rules, committed, purchase.merchantId, amountCents);
-    if (outcome === 'block') return { code: 'rules', reason };
-    const partner = this.#partnerProblem(purchase.merchantId);
-    if (partner) return partner;
-    if (outcome === 'approval' && !purchase.customerApproved) {
+    const byRules = evaluate(this.rules, committed, purchase.merchantId, amountCents);
+    if (byRules.outcome === 'block') return { problem: { code: 'rules', reason: byRules.reason } };
+    const byConsent = evaluate(limits, this.#sumAgentCents(purchase), purchase.merchantId, amountCents);
+    if (byConsent.outcome === 'block') {
+      return { problem: { code: 'consent', reason: `Outside this agent's permissions. ${byConsent.reason}` } };
+    }
+    const partner = this.#partnerProblem(purchase);
+    if (partner) return { problem: partner };
+    const held = [byRules, byConsent].find((result) => result.outcome === 'approval');
+    return { needsApproval: Boolean(held), reason: held?.reason ?? byRules.reason };
+  }
+
+  #limitsProblem(purchase, amountCents, limits) {
+    const { problem, needsApproval, reason } = this.#assess(purchase, amountCents, limits);
+    if (problem) return problem;
+    if (needsApproval && !purchase.customerApproved) {
       return { code: 'approval_required', reason: `${reason} Your approval is required.` };
     }
     return null;
@@ -245,7 +285,7 @@ export class Guard {
 
   #charge(purchase, reason) {
     this.#settle(purchase, 'completed', reason);
-    this.#record('payment', `Charged ${money(purchase.amountCents)} to test token ${this.#maskedToken()} at ${purchase.merchantName}. No real money moved.`, purchase);
+    this.#record('payment', `Charged ${money(purchase.amountCents)} to ${purchase.agentName}'s test token at ${purchase.merchantName}. No real money moved.`, purchase);
     this.#auditCharge(purchase);
   }
 
@@ -255,9 +295,14 @@ export class Guard {
     const committed = this.#sumCents(COMMITTED_STATUSES, purchase.id);
     if (!purchase.cleared) problems.push('the guard never cleared it');
     if (!this.rules.allowedMerchantIds.includes(purchase.merchantId)) problems.push('the merchant is not on your allowed list');
-    if (this.#merchantRefusesAgent(purchase.merchantId)) problems.push('the merchant does not accept this agent company');
+    if (this.#merchantRefusesAgent(purchase.merchantId, purchase.agentCompanyId)) problems.push('the merchant does not accept this agent company');
     if (committed + purchase.amountCents > this.rules.budgetCents) problems.push('it goes over your budget');
     if (purchase.amountCents > this.rules.approvalCents && !purchase.customerApproved) problems.push('it needed your approval');
+    const limits = purchase.connectionId && this.connections.limits(purchase.connectionId, this.#nowMs());
+    if (limits) {
+      if (!limits.allowedMerchantIds.includes(purchase.merchantId)) problems.push('the merchant is outside this agent\'s permissions');
+      if (this.#sumAgentCents(purchase) + purchase.amountCents > limits.budgetCents) problems.push('it goes over this agent\'s budget');
+    }
     if (problems.length === 0) return;
 
     const summary = `${money(purchase.amountCents)} at ${purchase.merchantName} went through outside your rules: ${problems.join(', ')}.`;
@@ -272,7 +317,7 @@ export class Guard {
     if (this.paused) return;
     this.paused = true;
     this.agentStatus = { running: this.agentStatus.running, message: 'Paused after a flagged charge.' };
-    this.#record('guard', 'Paused the agent automatically after a flagged charge.', null, true);
+    this.#record('guard', 'Paused all agents automatically after a flagged charge.', null, true);
     this.#cancelHeld('The agent was paused after a flagged charge.');
   }
 
@@ -304,11 +349,23 @@ export class Guard {
     return changed;
   }
 
-  #cancelHeld(reason) {
-    for (const purchase of this.purchases.filter((p) => HOLD_STATUSES.includes(p.status))) {
+  #cancelHeld(reason, connectionId = null) {
+    const held = this.purchases.filter((p) => HOLD_STATUSES.includes(p.status) && (connectionId === null || p.connectionId === connectionId));
+    for (const purchase of held) {
       this.#settle(purchase, 'canceled', reason);
       this.#record('guard', `Canceled ${purchase.item} at ${purchase.merchantName}: ${reason}`, purchase);
     }
+    return held.length > 0;
+  }
+
+  #spendByConnection() {
+    const spend = {};
+    for (const purchase of this.purchases) {
+      if (purchase.status === 'completed' && purchase.connectionId) {
+        spend[purchase.connectionId] = (spend[purchase.connectionId] ?? 0) + purchase.amountCents;
+      }
+    }
+    return spend;
   }
 
   snapshot() {
@@ -318,12 +375,12 @@ export class Guard {
       rules: this.rules,
       merchants: MERCHANTS,
       agentCompanies: AGENT_COMPANIES,
-      agentCompanyId: this.agentCompanyId,
+      demoAgents: DEMO_AGENTS,
       merchantAgents: this.merchantAgents,
+      connections: this.connections.list(this.#nowMs(), this.#spendByConnection()),
       refundReasons: REFUND_REASONS,
       now: this.#nowIso(),
       simulatedDays: this.#clockOffsetMs / DAY_MS,
-      access: { active: this.#token !== null, token: this.#maskedToken() },
       paused: this.paused,
       alerts: this.alerts,
       spentCents,
@@ -336,13 +393,43 @@ export class Guard {
     };
   }
 
-  agentToken() {
-    return this.#token;
-  }
-
   getPurchase(id) {
     const purchase = this.purchases.find((p) => p.id === id);
     return purchase && { ...purchase };
+  }
+
+  agentLimits(token) {
+    return this.connections.authorize(token, this.#nowMs()).limits ?? null;
+  }
+
+  // A consent can only narrow what the customer's own rules already allow.
+  validatePermissions(input) {
+    if (!input || typeof input !== 'object') throw new GuardError('Permissions are missing.');
+    const { budgetCents, approvalCents, allowedMerchantIds, connectionExpiresOn } = input;
+    const error = rulesError({ budgetCents, approvalCents, allowedMerchantIds });
+    if (error) throw new GuardError(error);
+    if (budgetCents > this.rules.budgetCents) throw new GuardError(`Budget cannot be more than your ${money(this.rules.budgetCents)} overall budget.`);
+    if (approvalCents > this.rules.approvalCents) throw new GuardError(`Approval amount cannot be more than your ${money(this.rules.approvalCents)} limit.`);
+    if (!allowedMerchantIds.every((id) => this.rules.allowedMerchantIds.includes(id))) {
+      throw new GuardError('Allowed merchants must be on your Rules screen first.');
+    }
+    if (typeof connectionExpiresOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(connectionExpiresOn)) {
+      throw new GuardError('Choose a connection expiry date.');
+    }
+    const expiresAtMs = Date.parse(`${connectionExpiresOn}T23:59:59.999Z`);
+    if (Number.isNaN(expiresAtMs) || expiresAtMs <= this.#nowMs() || expiresAtMs > this.#nowMs() + MAX_CONNECTION_DAYS * DAY_MS) {
+      throw new GuardError(`Connection expiry must be within the next ${MAX_CONNECTION_DAYS} days.`);
+    }
+    return {
+      budgetCents,
+      approvalCents,
+      allowedMerchantIds: [...new Set(allowedMerchantIds)],
+      connectionExpiresAt: new Date(expiresAtMs).toISOString(),
+    };
+  }
+
+  nowMs() {
+    return this.#nowMs();
   }
 
   setRules(rules) {
@@ -358,15 +445,6 @@ export class Guard {
     this.#notify();
   }
 
-  setAgentCompany(id) {
-    if (!AGENT_COMPANIES.some((company) => company.id === id)) throw new GuardError('Agent company not found.', 404);
-    if (this.agentStatus.running) throw new GuardError('Wait for the agent to finish before changing its company.', 409);
-    if (id === this.agentCompanyId) return;
-    this.agentCompanyId = id;
-    this.#record('customer', `Chose ${this.#agentCompany().name} as the agent company.`);
-    this.#notify();
-  }
-
   setMerchantAgents(merchantId, agentCompanyIds) {
     if (!Object.hasOwn(this.merchantAgents, merchantId)) throw new GuardError('Merchant not found.', 404);
     if (!Array.isArray(agentCompanyIds) || !agentCompanyIds.every((id) => AGENT_COMPANIES.some((company) => company.id === id))) {
@@ -378,18 +456,12 @@ export class Guard {
     this.#notify();
   }
 
-  grantAccess() {
-    if (this.#token) return;
-    this.#token = `tok_test_${randomBytes(8).toString('hex')}`;
-    this.#record('customer', `Gave the agent access with test token ${this.#maskedToken()}.`);
-    this.#notify();
-  }
-
-  revokeAccess() {
-    if (!this.#token) return;
-    this.#token = null;
-    this.#record('customer', 'Revoked the agent\'s access. The test token no longer works.');
-    this.#cancelHeld('Access was revoked before the charge.');
+  // Only this agent's token stops working and only its purchases in progress are canceled.
+  revokeConnection(connectionId) {
+    if (!this.connections.revoke(connectionId, this.#nowMs())) throw new GuardError('Connection not found.', 404);
+    const name = this.connections.list(this.#nowMs()).find((c) => c.id === connectionId).shortName;
+    this.#record('customer', `Revoked ${name}'s access. Its test token no longer works.`);
+    this.#cancelHeld('Access was revoked before the charge.', connectionId);
     this.#notify();
   }
 
@@ -398,7 +470,7 @@ export class Guard {
     this.paused = false;
     this.alerts = [];
     this.agentStatus = { running: this.agentStatus.running, message: 'Resumed. Ready to shop.' };
-    this.#record('customer', 'Reviewed the flagged charge and resumed the agent.');
+    this.#record('customer', 'Reviewed the flagged charge and resumed agents.');
     this.#notify();
   }
 
@@ -416,23 +488,19 @@ export class Guard {
 
   // First gate: decides whether the agent may proceed to checkout. No money moves here.
   attempt({ token, merchantId, item, amountCents, overreach = false }) {
-    const purchase = this.#open({ merchantId, item, amountCents, overreach });
-    this.#record('agent', `Tried to buy ${item} for ${money(amountCents)} at ${purchase.merchantName}.`, purchase);
+    const auth = this.#authorize(token);
+    const purchase = this.#open({ merchantId, item, amountCents, overreach }, auth.connection);
+    this.#record('agent', `${purchase.agentName} tried to buy ${item} for ${money(amountCents)} at ${purchase.merchantName}.`, purchase);
 
-    const problem = this.#accessProblem(token);
-    if (problem) {
-      this.#block(purchase, problem.code, problem.reason);
+    if (auth.problem) {
+      this.#block(purchase, auth.problem.code, auth.problem.reason);
     } else {
-      const committed = this.#sumCents(COMMITTED_STATUSES, purchase.id);
-      const { outcome, reason } = evaluate(this.rules, committed, merchantId, amountCents);
-      const partner = this.#partnerProblem(merchantId);
-      if (outcome === 'block') {
-        this.#block(purchase, 'rules', reason);
-      } else if (partner) {
-        this.#block(purchase, partner.code, partner.reason);
+      const { problem, needsApproval, reason } = this.#assess(purchase, amountCents, auth.limits);
+      if (problem) {
+        this.#block(purchase, problem.code, problem.reason);
       } else if (this.#isDuplicate(purchase)) {
         this.#block(purchase, 'duplicate', 'Duplicate of a recent purchase with the same merchant, item, and amount.');
-      } else if (outcome === 'approval') {
+      } else if (needsApproval) {
         purchase.reason = reason;
         purchase.expiresAt = new Date(Date.parse(purchase.at) + APPROVAL_DAYS * DAY_MS).toISOString();
         this.#record('guard', `Held ${item} for your approval: ${reason}`, purchase);
@@ -451,13 +519,16 @@ export class Guard {
   checkout({ token, purchaseId, merchantId, item, amountCents, overreach = false }) {
     const final = { merchantId, item, amountCents, overreach };
     const purchase = this.purchases.find((p) => p.id === purchaseId);
+    const auth = this.#authorize(token);
     let result;
 
     if (purchase?.status === 'authorized') {
-      this.#record('agent', `Submitted final checkout: ${item} for ${money(amountCents)} at ${merchantName(merchantId)}.`, purchase);
-      const problem = this.#accessProblem(token)
-        ?? this.#mismatchProblem(purchase, final)
-        ?? this.#rulesProblem(purchase, amountCents);
+      this.#record('agent', `${purchase.agentName} submitted final checkout: ${item} for ${money(amountCents)} at ${merchantName(merchantId)}.`, purchase);
+      let problem = auth.problem;
+      if (!problem && auth.connection.id !== purchase.connectionId) {
+        problem = { code: 'wrong_token', reason: 'This purchase was cleared for a different agent.' };
+      }
+      problem ??= this.#mismatchProblem(purchase, final) ?? this.#limitsProblem(purchase, amountCents, auth.limits);
       if (problem) {
         this.#block(purchase, problem.code, problem.reason);
       } else {
@@ -471,8 +542,8 @@ export class Guard {
       result = purchase;
     } else {
       // Nothing is cleared for this charge, so it is recorded separately and the original stays as it was.
-      result = this.#open(final);
-      this.#record('agent', `Tried to charge ${item} for ${money(amountCents)} at ${result.merchantName}.`, result);
+      result = this.#open(final, auth.connection);
+      this.#record('agent', `${result.agentName} tried to charge ${item} for ${money(amountCents)} at ${result.merchantName}.`, result);
       if (purchase?.status === 'completed') this.#block(result, 'duplicate', 'This purchase has already been charged.');
       else this.#block(result, 'not_cleared', 'This charge was not cleared by the guard.');
     }
@@ -508,8 +579,11 @@ export class Guard {
     } else {
       this.#record('customer', `Approved ${purchase.item} at ${purchase.merchantName}.`, purchase);
       purchase.customerApproved = true;
-      // The rules may have changed while this purchase waited, so check them again.
-      const problem = this.#rulesProblem(purchase);
+      // The rules and consent may have changed while this purchase waited, so check them again.
+      const limits = this.connections.limits(purchase.connectionId, this.#nowMs());
+      const problem = limits
+        ? this.#limitsProblem(purchase, purchase.amountCents, limits)
+        : { code: 'no_access', reason: 'The agent does not have access.' };
       if (problem) {
         this.#block(purchase, problem.code, problem.reason);
       } else {
@@ -599,11 +673,13 @@ export class Guard {
     this.#notify();
   }
 
+  // Clears the demo data. The audit log itself is append-only and keeps every entry.
   reset() {
-    this.#token = null;
     for (const resolve of this.#waiters.values()) resolve();
     this.#waiters.clear();
+    const lastEntry = this.#record('customer', 'Reset the demo.');
     this.#clear();
+    this.#auditFloor = lastEntry;
     this.#notify();
   }
 }

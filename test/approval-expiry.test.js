@@ -4,12 +4,12 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { MockAgent } from '../src/agent.js';
 import { ASSET_PATHS, MERCHANTS, productFor } from '../src/catalog.js';
-import { Guard } from '../src/guard.js';
+import { createGuard } from '../testing/harness.js';
 
 const RULES = { budgetCents: 10000, allowedMerchantIds: ['grocer'], approvalCents: 5000 };
 
 function heldPurchase() {
-  const guard = new Guard();
+  const guard = createGuard();
   guard.setRules(RULES);
   guard.grantAccess();
   const purchase = guard.attempt({ token: guard.agentToken(), merchantId: 'grocer', item: 'USB charger', amountCents: 6000 });
@@ -81,9 +81,9 @@ test('a reset returns the clock to today', () => {
 });
 
 test('the mock agent moves on after an approval expires', async () => {
-  const guard = new Guard();
+  const guard = createGuard();
   guard.grantAccess();
-  const run = new MockAgent(guard, { stepMs: 0 }).run();
+  const run = new MockAgent(guard, { stepMs: 0 }).run(guard.agentToken());
   while (!guard.purchases.some((p) => p.status === 'pending')) await new Promise((r) => setTimeout(r, 1));
   guard.advanceDay();
   guard.advanceDay();

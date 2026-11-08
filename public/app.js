@@ -9,24 +9,32 @@ const STATUS_LABELS = {
   canceled: 'Canceled',
   refunded: 'Refunded',
 };
-const ACTOR_LABELS = { customer: 'You', agent: 'Agent', guard: 'Guard', payment: 'Test payment', refund: 'Refunds', reminder: 'Reminder', clock: 'Test clock', merchant: 'Merchant' };
+const CONNECTION_LABELS = { active: 'Active', expired: 'Expired', revoked: 'Revoked' };
+const ACTOR_LABELS = { customer: 'You', agent: 'Agent', guard: 'Guard', payment: 'Test payment', refund: 'Refunds', reminder: 'Reminder', clock: 'Test clock', merchant: 'Merchant', security: 'Security' };
 const DAY_MS = 24 * 60 * 60 * 1000;
-const PARENT_TABS = { report: 'activity', refund: 'refunds', purchase: 'agent', merchants: 'agent' };
+const DEFAULT_CONNECTION_DAYS = 30;
+const PARENT_TABS = { report: 'activity', refund: 'refunds', purchase: 'agent', merchants: 'agent', connect: 'agents' };
 
 const money = (cents) => `$${(cents / 100).toFixed(2)}`;
 const toCents = (value) => Math.round(Number(value) * 100);
 const time = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
 const day = (iso) => new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+const utcDay = (iso) => new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 const dayAndTime = (iso) => `${day(iso)}, ${new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
 
 let state = null;
+let events = null;
+let currentUser = null;
+let signInEmail = '';
 let formDirty = false;
 let renderedRules = '';
-let currentTab = 'rules';
+let renderedConnections = '';
+let currentTab = 'agents';
 let reportPurchaseId = null;
 let openRefundId = null;
 let openPurchaseId = null;
 let purchaseReturnTab = 'agent';
+let connectFlow = null;
 const seenPending = new Set();
 
 function el(tag, className, text) {
@@ -66,6 +74,7 @@ async function post(path, body = {}) {
     body: JSON.stringify(body),
   });
   const data = await response.json();
+  if (response.status === 401 && !path.startsWith('/api/auth/')) showSignedOut(data.error);
   if (!response.ok) throw new Error(data.error);
   return data;
 }
@@ -182,7 +191,7 @@ function renderPurchaseDetail() {
       ['Size', purchase.size],
       ['Purchased', dayAndTime(purchase.settledAt ?? purchase.at)],
       ['Status', purchase.flagged ? 'Flagged' : STATUS_LABELS[purchase.status]],
-      ['Agent company', purchase.agentCompanyName],
+      ['Agent', purchase.agentName],
     ]),
   );
 
@@ -212,6 +221,7 @@ function approvalCard(purchase) {
   card.classList.add('approval');
   const daysLeft = Math.ceil((Date.parse(purchase.expiresAt) - Date.parse(state.now)) / DAY_MS);
   const countdown = purchase.reminder ?? `This request expires in ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}`;
+  card.append(el('p', 'reason', `Requested by ${purchase.agentName}.`));
   card.append(el('p', 'countdown', `${countdown}, on ${day(purchase.expiresAt)}.`));
   card.append(el('p', 'reason', `If approved, ${money(state.remainingCents)} of your budget stays available.`));
   const actions = el('div', 'actions');
@@ -224,17 +234,16 @@ function approvalCard(purchase) {
   return card;
 }
 
+const activeConnections = () => state.connections.filter((connection) => connection.status === 'active');
+
 function renderHeader() {
-  const { access, paused, rules, spentCents, heldCents, remainingCents } = state;
-  $('#access-dot').classList.toggle('on', access.active && !paused);
-  let accessText = 'Agent has no access';
-  if (paused) accessText = 'Agent paused';
-  else if (access.active) accessText = `Active · ${access.token}`;
-  $('#access-text').textContent = accessText;
-  const accessButton = $('#access-button');
-  accessButton.disabled = false;
-  accessButton.textContent = access.active ? 'Revoke access' : 'Give access';
-  accessButton.className = access.active ? 'button danger' : 'button primary';
+  const { paused, rules, spentCents, heldCents, remainingCents } = state;
+  const active = activeConnections().length;
+  $('#access-dot').classList.toggle('on', active > 0 && !paused);
+  let summary = 'No agents connected';
+  if (paused) summary = 'Agents paused';
+  else if (active) summary = `${active} ${active === 1 ? 'agent' : 'agents'} connected`;
+  $('#access-text').textContent = `${currentUser.email} · ${summary}`;
 
   const percent = (cents) => (rules.budgetCents ? Math.min(100, (cents / rules.budgetCents) * 100) : 0);
   $('#meter-spent').style.width = `${percent(spentCents)}%`;
@@ -253,9 +262,9 @@ function renderAlert() {
   const actions = el('div', 'actions');
   actions.append(
     button('button', refundFor(alert.purchaseId) ? 'View refund' : 'Report charge', () => reportOrView(alert.purchaseId)),
-    button('button', 'Resume agent', () => act('/api/agent/resume', {}, 'Agent resumed.')),
+    button('button', 'Resume agents', () => act('/api/agent/resume', {}, 'Agents resumed.')),
   );
-  box.replaceChildren(el('strong', '', 'Charge flagged. Agent paused.'), el('p', '', alert.message), actions);
+  box.replaceChildren(el('strong', '', 'Charge flagged. Agents paused.'), el('p', '', alert.message), actions);
 }
 
 function renderReminders() {
@@ -271,8 +280,143 @@ function renderReminders() {
   }));
 }
 
+function connectionCard(connection) {
+  const card = el('li', connection.status === 'active' ? 'card' : 'card inactive');
+  const head = el('div', 'card-row');
+  const identity = el('div', 'merchant-head');
+  const name = el('div');
+  name.append(el('strong', '', connection.name), el('p', 'muted', connection.companyName));
+  identity.append(image('logo large', connection.icon), name);
+  head.append(identity, el('span', `tag ${connection.status}`, CONNECTION_LABELS[connection.status]));
+
+  const { permissions, consent } = connection;
+  card.append(head, detailList([
+    ['Budget', money(permissions.budgetCents)],
+    ['Spend so far', money(connection.spentCents)],
+    ['Allowed merchants', permissions.allowedMerchants.join(', ') || 'None'],
+    ['Ask for approval above', money(permissions.approvalCents)],
+    ['Approval requests expire after', `${permissions.approvalExpiryDays} days`],
+    ['Connection expires', utcDay(permissions.connectionExpiresAt)],
+    ['Connected', dayAndTime(connection.connectedAt)],
+    ['Last activity', connection.lastActivityAt ? dayAndTime(connection.lastActivityAt) : 'None yet'],
+    ['Revoked', connection.revokedAt ? dayAndTime(connection.revokedAt) : null],
+    ['Test card token', connection.token],
+    ['Signed consent', `Version ${consent.version}, ${consent.verified ? 'signature verified' : 'signature invalid'}`],
+  ]));
+
+  const record = el('details', 'consent-record');
+  record.append(el('summary', '', 'View signed consent record'), el('pre', '', JSON.stringify({
+    mandate: JSON.parse(consent.mandateJson),
+    signature: consent.signature,
+    algorithm: 'Ed25519',
+    keyId: consent.keyId,
+  }, null, 2)));
+  card.append(record);
+
+  if (connection.status === 'active') {
+    const actions = el('div', 'actions');
+    actions.append(
+      button('button danger', 'Revoke', () => act(`/api/connections/${connection.id}/revoke`, {}, `${connection.shortName} revoked.`)),
+      button('button', 'Edit permissions', () => startConnect(state.demoAgents.find((a) => a.id === connection.agentId), connection)),
+    );
+    card.append(actions);
+  }
+  return card;
+}
+
+function renderConnections() {
+  const available = state.demoAgents.filter((agent) => !activeConnections().some((c) => c.agentId === agent.id));
+  const serialized = JSON.stringify([state.connections, available.map((a) => a.id)]);
+  if (serialized === renderedConnections) return;
+  renderedConnections = serialized;
+
+  $('#connections').replaceChildren(...(state.connections.length ? state.connections.map(connectionCard) : [el('li', 'empty', 'No agents connected yet.')]));
+  $('#available-agents').replaceChildren(...(available.length ? available.map((agent) => {
+    const card = el('li', 'card');
+    const row = el('div', 'card-row');
+    const identity = el('div', 'merchant-head');
+    identity.append(image('logo large', agent.icon), el('strong', '', agent.name));
+    row.append(identity, button('button primary', 'Connect', () => startConnect(agent)));
+    card.append(row);
+    return card;
+  }) : [el('li', 'empty', 'All demo agents are connected.')]));
+}
+
+function showConnectStage(stage) {
+  connectFlow.stage = stage;
+  $('#stepup-form').hidden = stage !== 'stepup';
+  $('#limits-form').hidden = stage !== 'limits';
+  $('#consent-review').hidden = stage !== 'consent';
+}
+
+async function startConnect(agent, connection = null) {
+  try {
+    const challenge = await post('/api/connections/step-up', connection ? { connectionId: connection.id } : { agentId: agent.id });
+    connectFlow = { agent, connection, challengeId: challenge.challengeId, permissions: null };
+    $('#connect-title').textContent = connection ? 'Edit permissions' : 'Connect an agent';
+    const name = el('strong', '', agent.name);
+    $('#connect-agent').replaceChildren(image('logo large', agent.icon), name);
+    $('#stepup-code').textContent = challenge.demoCode;
+    $('#stepup-input').value = '';
+    showConnectStage('stepup');
+    showTab('connect');
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function fillLimitsForm() {
+  const { connection } = connectFlow;
+  const limits = connection?.permissions ?? state.rules;
+  $('#limit-budget').value = (limits.budgetCents / 100).toFixed(2);
+  $('#limit-approval').value = (limits.approvalCents / 100).toFixed(2);
+  $('#limit-budget').max = (state.rules.budgetCents / 100).toFixed(2);
+  $('#limit-approval').max = (state.rules.approvalCents / 100).toFixed(2);
+  const expiry = connection?.permissions.connectionExpiresAt ?? new Date(Date.parse(state.now) + DEFAULT_CONNECTION_DAYS * DAY_MS).toISOString();
+  $('#limit-expiry').value = expiry.slice(0, 10);
+  $('#limit-expiry').min = state.now.slice(0, 10);
+
+  const allowed = state.merchants.filter((merchant) => state.rules.allowedMerchantIds.includes(merchant.id));
+  $('#limit-merchants').replaceChildren(...(allowed.length ? allowed.map((merchant) => {
+    const label = el('label', 'check');
+    const input = el('input');
+    input.type = 'checkbox';
+    input.value = merchant.id;
+    input.checked = limits.allowedMerchantIds.includes(merchant.id);
+    const text = el('span');
+    text.append(el('strong', '', merchant.name), el('span', 'muted', merchant.category));
+    label.append(input, image('logo large', merchant.logo), text);
+    return label;
+  }) : [el('p', 'empty', 'No merchants are allowed on your Rules screen yet.')]));
+}
+
+function renderConsent(preview) {
+  const { permissions, statement } = preview.mandate;
+  $('#consent-statement').textContent = statement;
+  $('#consent-details').replaceChildren(detailList([
+    ['Budget', money(permissions.budgetCents)],
+    ['Allowed merchants', permissions.allowedMerchants.join(', ') || 'None'],
+    ['Ask for approval above', money(permissions.approvalCents)],
+    ['Approval requests expire after', `${permissions.approvalExpiryDays} days`],
+    ['Connection expires', utcDay(permissions.connectionExpiresAt)],
+  ]));
+}
+
+function endConnect() {
+  connectFlow = null;
+  showTab('agents');
+}
+
+async function cancelConnect() {
+  if (connectFlow && connectFlow.stage !== 'stepup') {
+    try {
+      await post('/api/connections/cancel', { challengeId: connectFlow.challengeId });
+    } catch { /* The step-up may have lapsed, and there is nothing else to undo. */ }
+  }
+  endConnect();
+}
+
 function renderRules() {
-  $('#save-rules').textContent = state.access.active ? 'Save rules' : 'Save rules and give agent access';
   const serialized = JSON.stringify(state.rules);
   if (formDirty || serialized === renderedRules) return;
   renderedRules = serialized;
@@ -336,33 +480,41 @@ function buildMerchantSettings() {
         const agentCompanyIds = [...card.querySelectorAll('input:checked')].map((box) => box.value);
         act(`/api/merchants/${merchant.id}/agents`, { agentCompanyIds });
       });
-      label.append(input, el('span', '', company.name));
+      const agent = state.demoAgents.find((a) => a.companyId === company.id);
+      label.append(input, el('span', '', `${company.name} (${agent.shortName})`));
       card.append(label);
     });
     return card;
   }));
 }
 
-function buildAgentCompanies() {
-  $('#agent-company').replaceChildren(...state.agentCompanies.map((company) => {
-    const option = el('option', '', company.name);
-    option.value = company.id;
-    return option;
-  }));
+function renderShopAgents() {
+  const select = $('#shop-agent');
+  const active = activeConnections();
+  const previous = select.value;
+  const signature = active.map((c) => c.id).join();
+  if (select.dataset.signature !== signature) {
+    select.dataset.signature = signature;
+    select.replaceChildren(...active.map((connection) => {
+      const option = el('option', '', connection.name);
+      option.value = connection.id;
+      return option;
+    }));
+    if (active.some((c) => c.id === previous)) select.value = previous;
+  }
+  select.disabled = state.agent.running || active.length === 0;
+  return active.length > 0;
 }
 
 function renderAgent() {
-  $('#agent-company').value = state.agentCompanyId;
-  $('#agent-company').disabled = state.agent.running;
+  const hasAgent = renderShopAgents();
   const ahead = state.simulatedDays;
   $('#sim-day').textContent = ahead
     ? `Simulated time is ${ahead} ${ahead === 1 ? 'day' : 'days'} ahead.`
     : 'A pending approval lasts 3 days. Simulated time is on today.';
-  $('#agent-status').textContent = !state.access.active && !state.agent.running && !state.purchases.length
-    ? 'The agent has no access yet, so its purchases will be blocked.'
-    : state.agent.message;
-  $('#run-agent').disabled = state.agent.running;
-  $('#simulate-overreach').disabled = state.agent.running;
+  $('#agent-status').textContent = hasAgent || state.agent.running ? state.agent.message : 'Connect an agent on the Agents screen first.';
+  $('#run-agent').disabled = state.agent.running || !hasAgent;
+  $('#simulate-overreach').disabled = state.agent.running || !hasAgent;
   $('#run-agent').textContent = state.agent.running ? 'Agent is shopping…' : 'Send agent shopping';
   const purchases = [...state.purchases].reverse();
   $('#purchases').replaceChildren(...(purchases.length ? purchases.map(purchaseCard) : [el('li', 'empty', 'No purchases yet.')]));
@@ -377,7 +529,7 @@ function renderApprovals() {
 
   const fresh = pending.find((purchase) => !seenPending.has(purchase.id));
   pending.forEach((purchase) => seenPending.add(purchase.id));
-  if (fresh && currentTab !== 'report') showTab('approvals');
+  if (fresh && !['report', 'connect'].includes(currentTab)) showTab('approvals');
 }
 
 function renderLog() {
@@ -394,7 +546,7 @@ function renderLog() {
     if (purchase) body.append(image('logo', purchase.merchantLogo, `${purchase.merchantName} logo`));
     body.append(el('p', '', entry.message));
     item.append(head, body);
-    if (entry.purchaseId && !withButton.has(entry.purchaseId)) {
+    if (purchase && !withButton.has(entry.purchaseId)) {
       withButton.add(entry.purchaseId);
       if (wasCharged(purchase)) item.append(button('link details', 'View purchase details', () => openPurchase(purchase.id)));
       item.append(button('link report', refundFor(entry.purchaseId) ? 'View refund request' : 'Report a problem', () => reportOrView(entry.purchaseId)));
@@ -476,6 +628,7 @@ function render() {
   renderHeader();
   renderAlert();
   renderReminders();
+  renderConnections();
   renderRules();
   renderAgent();
   renderApprovals();
@@ -503,9 +656,130 @@ function buildReportReasons() {
   }));
 }
 
+function showSignInForm() {
+  $('#email-form').hidden = false;
+  $('#code-form').hidden = true;
+  $('#signin-input').value = '';
+}
+
+function showSignedOut(notice) {
+  events?.close();
+  events = null;
+  state = null;
+  currentUser = null;
+  connectFlow = null;
+  formDirty = false;
+  renderedRules = '';
+  renderedConnections = '';
+  seenPending.clear();
+  $('#app-view').hidden = true;
+  $('#signin-view').hidden = false;
+  $('#signin-notice').hidden = !notice;
+  $('#signin-notice').textContent = notice ?? '';
+  showSignInForm();
+}
+
+function startApp(user) {
+  currentUser = user;
+  $('#signin-view').hidden = true;
+  $('#app-view').hidden = false;
+  showTab('agents');
+  events = new EventSource('/api/events');
+  events.onopen = () => setLive(true);
+  events.onerror = async () => {
+    setLive(false);
+    const response = await fetch('/api/session').catch(() => null);
+    if (response?.status === 401) showSignedOut('Your session expired. Sign in again.');
+  };
+  events.onmessage = (event) => {
+    const firstState = !state;
+    state = JSON.parse(event.data);
+    if (firstState) {
+      buildReportReasons();
+      buildMerchantSettings();
+    }
+    render();
+  };
+}
+
+function limitsFromForm() {
+  return {
+    budgetCents: toCents($('#limit-budget').value),
+    approvalCents: toCents($('#limit-approval').value),
+    allowedMerchantIds: [...document.querySelectorAll('#limit-merchants input:checked')].map((input) => input.value),
+    connectionExpiresOn: $('#limit-expiry').value,
+  };
+}
+
+const onSubmit = (selector, handler) => $(selector).addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    await handler();
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
+const selectedConnection = () => ({ connectionId: $('#shop-agent').value });
+
 document.querySelectorAll('.tabs button').forEach((node) => {
   node.addEventListener('click', () => showTab(node.dataset.tab));
 });
+
+onSubmit('#email-form', async () => {
+  const { email, demoCode } = await post('/api/auth/code', { email: $('#email').value });
+  signInEmail = email;
+  $('#signin-code').textContent = demoCode;
+  $('#signin-notice').hidden = true;
+  $('#email-form').hidden = true;
+  $('#code-form').hidden = false;
+  $('#signin-input').focus();
+});
+
+onSubmit('#code-form', async () => {
+  const { user } = await post('/api/auth/verify', { email: signInEmail, code: $('#signin-input').value });
+  startApp(user);
+});
+
+$('#change-email').addEventListener('click', showSignInForm);
+
+$('#signout-button').addEventListener('click', async () => {
+  try {
+    await post('/api/auth/signout');
+    showSignedOut('You are signed out.');
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
+onSubmit('#stepup-form', async () => {
+  await post('/api/connections/step-up/verify', { challengeId: connectFlow.challengeId, code: $('#stepup-input').value });
+  fillLimitsForm();
+  showConnectStage('limits');
+  window.scrollTo(0, 0);
+});
+
+onSubmit('#limits-form', async () => {
+  const permissions = limitsFromForm();
+  const preview = await post('/api/connections/preview', { challengeId: connectFlow.challengeId, permissions });
+  connectFlow.permissions = permissions;
+  renderConsent(preview);
+  showConnectStage('consent');
+  window.scrollTo(0, 0);
+});
+
+$('#consent-allow').addEventListener('click', async () => {
+  try {
+    await post('/api/connections/allow', { challengeId: connectFlow.challengeId, permissions: connectFlow.permissions });
+    toast(`${connectFlow.agent.shortName} is ready.`);
+    endConnect();
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
+$('#consent-cancel').addEventListener('click', cancelConnect);
+$('#connect-back').addEventListener('click', cancelConnect);
 
 $('#rules-form').addEventListener('input', () => { formDirty = true; });
 
@@ -516,54 +790,36 @@ $('#merchant-options').addEventListener('change', ({ target }) => {
   syncCategories();
 });
 
-$('#agent-company').addEventListener('change', (event) => act('/api/agent-company', { id: event.target.value }));
 $('#open-merchants').addEventListener('click', () => showTab('merchants'));
 $('#merchants-back').addEventListener('click', () => showTab('agent'));
 $('#purchase-back').addEventListener('click', () => showTab(purchaseReturnTab));
 
-$('#rules-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
+onSubmit('#rules-form', async () => {
   const allowedMerchantIds = [...document.querySelectorAll('#merchant-options input[data-merchant]:checked')].map((input) => input.value);
-  try {
-    await post('/api/rules', {
-      budgetCents: toCents($('#budget').value),
-      approvalCents: toCents($('#approval').value),
-      allowedMerchantIds,
-    });
-    formDirty = false;
-    if (!state.access.active) await post('/api/access', { active: true });
-    toast('Rules saved.');
-    showTab('agent');
-  } catch (error) {
-    toast(error.message);
-  }
+  await post('/api/rules', {
+    budgetCents: toCents($('#budget').value),
+    approvalCents: toCents($('#approval').value),
+    allowedMerchantIds,
+  });
+  formDirty = false;
+  toast('Rules saved.');
 });
 
-$('#access-button').addEventListener('click', () => {
-  const active = !state.access.active;
-  act('/api/access', { active }, active ? 'The agent has access.' : 'Access revoked.');
-});
-
-$('#run-agent').addEventListener('click', () => act('/api/agent/run'));
-$('#simulate-overreach').addEventListener('click', () => act('/api/agent/overreach'));
+$('#run-agent').addEventListener('click', () => act('/api/agent/run', selectedConnection()));
+$('#simulate-overreach').addEventListener('click', () => act('/api/agent/overreach', selectedConnection()));
 $('#simulate-uncleared').addEventListener('click', () => act('/api/simulate/uncleared-charge'));
 $('#simulate-next-day').addEventListener('click', () => act('/api/simulate/next-day'));
 $('#report-back').addEventListener('click', () => showTab('activity'));
 $('#refund-back').addEventListener('click', () => showTab('refunds'));
 
-$('#report-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  try {
-    const before = state.refunds.length;
-    const reason = document.querySelector('input[name="report-reason"]:checked').value;
-    const updated = await post(`/api/purchases/${reportPurchaseId}/report`, { reason, note: $('#report-note').value });
-    state = updated;
-    render();
-    toast('Refund request submitted.');
-    openRefund(updated.refunds[before].id);
-  } catch (error) {
-    toast(error.message);
-  }
+onSubmit('#report-form', async () => {
+  const before = state.refunds.length;
+  const reason = document.querySelector('input[name="report-reason"]:checked').value;
+  const updated = await post(`/api/purchases/${reportPurchaseId}/report`, { reason, note: $('#report-note').value });
+  state = updated;
+  render();
+  toast('Refund request submitted.');
+  openRefund(updated.refunds[before].id);
 });
 
 $('#reset').addEventListener('click', async () => {
@@ -572,23 +828,13 @@ $('#reset').addEventListener('click', async () => {
     renderedRules = '';
     seenPending.clear();
     await post('/api/reset');
-    toast('Demo reset.');
+    toast('Demo reset. Connected agents were kept.');
     showTab('rules');
   } catch (error) {
     toast(error.message);
   }
 });
 
-const events = new EventSource('/api/events');
-events.onopen = () => setLive(true);
-events.onerror = () => setLive(false);
-events.onmessage = (event) => {
-  const firstState = !state;
-  state = JSON.parse(event.data);
-  if (firstState) {
-    buildReportReasons();
-    buildMerchantSettings();
-    buildAgentCompanies();
-  }
-  render();
-};
+const session = await fetch('/api/session');
+if (session.ok) startApp((await session.json()).user);
+else showSignedOut();

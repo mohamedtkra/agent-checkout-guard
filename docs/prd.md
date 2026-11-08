@@ -8,6 +8,13 @@ Agent Checkout Guard is a customer-facing web app that lets a person give an AI 
 
 The product uses mock merchants and test card tokens only, with no real payments.
 
+## Background
+
+Agent Checkout Guard borrows ideas from two emerging agent payment protocols. It does not implement or interoperate with either one. See [decision 005](decisions.md).
+
+- **[Agentic Commerce Protocol](https://developers.openai.com/commerce/specs/payment) (ACP):** [Co-developed by OpenAI and Stripe](https://stripe.com/newsroom/news/stripe-openai-instant-checkout). Its Delegated Payment Spec limits a payment token by a maximum amount and an expiry, so an agent never holds an unrestricted card. The per-agent scoped test tokens here follow that idea.
+- **[Agent Payments Protocol](https://ap2-protocol.org/) (AP2):** Announced by Google in September 2025. It uses signed mandates as proof of what a person authorized: an Intent Mandate for the boundaries an agent may act within, a Cart Mandate for a specific cart, and a Payment Mandate for the payment network. The signed consent record here is modeled on an Intent Mandate. The prototype has no Cart or Payment Mandates, and it signs on the server rather than with a key held by the customer.
+
 ## Goals
 
 - Let an agent handle routine purchases without the customer overspending or being exposed to fraud.
@@ -61,6 +68,13 @@ Other non-goals: TBD
 | R26 | Merchants belong to categories, and a customer can allow a whole category or individual merchants. | TBD |
 | R27 | Each merchant chooses which agent companies it accepts, and a purchase is blocked if the merchant does not accept the agent's company. | TBD |
 | R28 | After a purchase is made, the customer can see a picture of the item, its details, and the merchant's information. | TBD |
+| R29 | A customer signs in to a demo account with an email and a one-time 6-digit code shown on screen, with no real email or SMS. Sessions expire after 30 minutes. | TBD |
+| R30 | Users, sessions, agent connections, consents, tokens, and the audit log are stored in SQLite and survive restarts. | TBD |
+| R31 | A customer can connect three clearly labeled demo agents with original icons. Connecting requires a step-up check with a second one-time code. | TBD |
+| R32 | Before linking, a consent screen shows exactly what the agent may do (budget, allowed merchants, approval amount, approval expiry, and connection expiry date) with Allow and Cancel. An AP2-style signed consent record is stored. | TBD |
+| R33 | Each connected agent gets its own test card token, valid only within its consent. The guard checks the token, the consent, and the rules on every purchase. | TBD |
+| R34 | A Connected agents page lists each agent with its permissions, connection date, last activity, and spend so far, with Edit permissions and Revoke. Revoking one agent does not affect the others. | TBD |
+| R35 | A "Demo - no real accounts or payments" banner appears on every screen, and the product never asks for real passwords or card numbers. | TBD |
 
 ## Key flow
 
@@ -70,6 +84,18 @@ Other non-goals: TBD
 4. The purchase is blocked if it breaks a rule, held for phone approval if it is above the approval amount, and otherwise allowed.
 5. Every agent action appears in the live log.
 6. The customer can revoke access at any point.
+
+## Connect an agent flow
+
+See [decision 005](decisions.md).
+
+1. The customer signs in with a demo email and a one-time code shown on screen.
+2. The customer chooses a demo agent and confirms it is them with a second one-time code.
+3. The customer sets the agent's limits, which cannot go beyond their Rules.
+4. A consent screen shows exactly what the agent may do, with Allow and Cancel.
+5. On Allow, a signed consent record is stored and the agent receives its own test card token.
+6. Each purchase is checked against the token, the signed consent, and the rules.
+7. The customer can edit permissions, which needs another step-up and signs a new consent, or revoke that agent alone.
 
 ## Approval expiry flow
 

@@ -35,16 +35,16 @@ export class MockAgent {
     this.list = list;
   }
 
-  run() {
+  run(token) {
     if (this.#running) return null;
     this.#running = true;
-    return this.#shop(++this.#runId);
+    return this.#shop(++this.#runId, token);
   }
 
-  simulateOverreach() {
+  simulateOverreach(token) {
     if (this.#running) return null;
     this.#running = true;
-    return this.#overreach(++this.#runId);
+    return this.#overreach(++this.#runId, token);
   }
 
   stop() {
@@ -72,10 +72,9 @@ export class MockAgent {
     return guard.checkout({ token, purchaseId: purchase.id, ...quote, ...final });
   }
 
-  async #shop(runId) {
+  // The agent keeps its token for the whole run, as an agent holding a card would.
+  async #shop(runId, token) {
     const { guard } = this;
-    // The agent keeps this token for the whole run, as an agent holding a card would.
-    const token = guard.agentToken();
     guard.setAgentStatus(true, 'Starting the shopping list.', 'Started the shopping list.');
 
     for (const step of this.list) {
@@ -93,9 +92,10 @@ export class MockAgent {
     this.#finish('Finished the shopping list.', 'Finished the shopping list.');
   }
 
-  #overreachStep(id) {
+  #overreachStep(id, token) {
     const { rules, purchases } = this.guard;
-    const merchantId = rules.allowedMerchantIds[0] ?? 'grocer';
+    const agentMerchants = this.guard.agentLimits(token)?.allowedMerchantIds ?? rules.allowedMerchantIds;
+    const merchantId = rules.allowedMerchantIds.find((m) => agentMerchants.includes(m)) ?? 'grocer';
     const quote = { merchantId, item: 'Phone case', amountCents: 100, overreach: true };
     switch (id) {
       case 'unlisted_merchant':
@@ -113,16 +113,15 @@ export class MockAgent {
     }
   }
 
-  async #overreach(runId) {
+  async #overreach(runId, token) {
     const { guard } = this;
-    const token = guard.agentToken();
     let scenario = OVERREACH_SCENARIOS[this.#overreachIndex];
     this.#overreachIndex = (this.#overreachIndex + 1) % OVERREACH_SCENARIOS.length;
-    let step = this.#overreachStep(scenario.id);
+    let step = this.#overreachStep(scenario.id, token);
     if (!step) {
       // There is nothing to charge twice yet, so use the first scenario instead.
       [scenario] = OVERREACH_SCENARIOS;
-      step = this.#overreachStep(scenario.id);
+      step = this.#overreachStep(scenario.id, token);
     }
 
     guard.setAgentStatus(true, `Overreach test: trying to ${scenario.label}.`, `Overreach test: tried to ${scenario.label}.`);

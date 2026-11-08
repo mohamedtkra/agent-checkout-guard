@@ -1,15 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { MockAgent } from '../src/agent.js';
-import { AGENT_COMPANIES, MERCHANTS } from '../src/catalog.js';
-import { Guard } from '../src/guard.js';
+import { MERCHANTS } from '../src/catalog.js';
+import { createGuard } from '../testing/harness.js';
 
 const RULES = { budgetCents: 10000, allowedMerchantIds: ['grocer', 'wellness'], approvalCents: 5000 };
 
-function activeGuard() {
-  const guard = new Guard();
+function activeGuard(agentId = 'agent-a') {
+  const guard = createGuard();
   guard.setRules(RULES);
-  guard.grantAccess();
+  guard.grantAccess(agentId);
   return guard;
 }
 
@@ -35,8 +34,7 @@ test('every category has more than one merchant, with information to show', () =
 });
 
 test('a merchant that does not accept the agent company blocks the purchase', () => {
-  const guard = activeGuard();
-  guard.setAgentCompany('zephwick');
+  const guard = activeGuard('agent-c');
   const result = attempt(guard, 'wellness');
   assert.equal(result.status, 'blocked');
   assert.equal(result.code, 'merchant_agent');
@@ -45,15 +43,11 @@ test('a merchant that does not accept the agent company blocks the purchase', ()
 });
 
 test('a merchant that accepts the agent company allows the purchase', () => {
-  const guard = activeGuard();
-  guard.setAgentCompany('zephwick');
-  assert.equal(attempt(guard, 'grocer').status, 'authorized');
+  assert.equal(attempt(activeGuard('agent-c'), 'grocer').status, 'authorized');
 });
 
 test('the customer rule is reported first when both would block', () => {
-  const guard = activeGuard();
-  guard.setAgentCompany('pennowl');
-  assert.equal(attempt(guard, 'electronics').code, 'rules');
+  assert.equal(attempt(activeGuard('agent-b'), 'electronics').code, 'rules');
 });
 
 test('a merchant withdrawing acceptance blocks at final checkout', () => {
@@ -82,34 +76,10 @@ test('merchant changes are validated and logged', () => {
   assert.ok(guard.log.some((entry) => entry.actor === 'merchant' && /Thistlewick Pantry now accepts agents from: Pennowl Agents/.test(entry.message)));
 });
 
-test('the agent company cannot be unknown or change mid-run', async () => {
+test('a reset restores the default merchant settings', () => {
   const guard = activeGuard();
-  assert.throws(() => guard.setAgentCompany('nobody'), (error) => error.status === 404);
-  const run = new MockAgent(guard, { stepMs: 0 }).run();
-  assert.throws(() => guard.setAgentCompany('pennowl'), (error) => error.status === 409);
-  while (guard.agentStatus.running) {
-    guard.purchases.filter((p) => p.status === 'pending').forEach((p) => guard.decide(p.id, false));
-    await new Promise((resolve) => setTimeout(resolve, 1));
-  }
-  await run;
-  assert.equal(guard.agentCompanyId, AGENT_COMPANIES[0].id);
-});
-
-test('a purchase records the agent company that made it', () => {
-  const guard = activeGuard();
-  guard.setAgentCompany('zephwick');
-  const paid = finalize(guard, attempt(guard));
-  assert.equal(paid.agentCompanyName, 'Zephwick Agents');
-  guard.setAgentCompany('pennowl');
-  assert.equal(guard.getPurchase(paid.id).agentCompanyName, 'Zephwick Agents');
-});
-
-test('a reset restores the default merchant settings and agent company', () => {
-  const guard = activeGuard();
-  guard.setAgentCompany('pennowl');
   guard.setMerchantAgents('grocer', []);
   guard.reset();
-  assert.equal(guard.agentCompanyId, 'quillhop');
   assert.ok(guard.merchantAgents.grocer.includes('quillhop'));
   assert.ok(MERCHANTS.find((m) => m.id === 'grocer').acceptedAgents.includes('zephwick'));
 });
