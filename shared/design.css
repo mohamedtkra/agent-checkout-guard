@@ -196,6 +196,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .plan-thumb { width: 44px; height: 44px; flex: none; border-radius: 10px; }
 .plan-text { display: grid; flex: 1; min-width: 0; font-size: 0.9rem; }
 .plan-text .muted { font-size: 0.82rem; }
+.plan-tag { justify-self: start; margin-top: 4px; }
+
+/* Revoking an agent */
+.notice-red { margin-bottom: 12px; padding: 10px 12px; border-radius: 12px; background: var(--red-soft); color: var(--red-ink); font-size: 0.88rem; font-weight: 600; }
+.revoke-head { padding: 12px 8px 16px; text-align: center; }
+.revoke-head img { margin: 0 auto 8px; }
+.revoke-head h2 { margin: 0 0 6px; }
+.revoke .actions { margin-top: 14px; }
+.revoke-summary { margin-top: 16px; text-align: left; }
+.stopped-list { margin-top: 8px; }
+.stopped-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); }
+.stopped-list li > span:first-child { display: grid; min-width: 0; }
 
 /* Agent chooser */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }

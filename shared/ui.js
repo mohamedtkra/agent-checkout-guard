@@ -83,6 +83,7 @@ export function planList(plan, money) {
     const text = el('span', 'plan-text');
     text.append(el('strong', '', entry.item), el('span', 'muted', entry.merchantName));
     if (entry.why) text.append(el('span', 'muted', entry.why));
+    if (typeof entry.willAsk === 'boolean') text.append(el('span', `tag plan-tag ${entry.willAsk ? 'pending' : 'active'}`, entry.willAsk ? 'Will ask you first' : 'Goes ahead on its own'));
     label.append(input, image('plan-thumb', entry.image), text, el('span', 'amount', money(entry.amountCents)));
     item.append(label);
     return item;
@@ -92,6 +93,13 @@ export function planList(plan, money) {
 
 export function selectedPlanItems(root) {
   return [...root.querySelectorAll('input[data-plan-index]:checked')].map((input) => Number(input.dataset.planIndex));
+}
+
+export function planSummary(plan, chosen, money) {
+  const items = plan.items.filter((item) => chosen.includes(item.index));
+  const total = `Total if everything goes ahead: ${money(items.reduce((sum, item) => sum + item.amountCents, 0))}.`;
+  if (!items.some((item) => typeof item.willAsk === 'boolean')) return total;
+  return `${total} You'll be asked about ${items.filter((item) => item.willAsk).length} of ${items.length}.`;
 }
 
 const ICONS = {
@@ -247,6 +255,7 @@ export function approvalSheet(purchase, { money, countdown, warning, onApprove, 
     ['Why you are being asked', purchase.reason],
     ['Decide by', countdown],
   ]));
+  if (purchase.offPlan) wrap.prepend(el('p', 'notice-red', 'This was not on the plan you reviewed. Deny it unless you expected it.'));
   if (warning) wrap.append(el('p', 'notice-amber', warning));
   const actions = el('div', 'actions');
   actions.append(button('button', 'Deny', onDeny), button('button primary', 'Approve', onApprove));
@@ -287,6 +296,93 @@ export function successPanel(title, text, actionLabel, onAction) {
   const mark = el('div', 'success-mark');
   mark.append(icon('check', 32));
   wrap.append(mark, el('h2', '', title), el('p', 'muted', text), button('button primary wide', actionLabel, onAction));
+  return wrap;
+}
+
+const OPEN_LABELS = { pending: 'Waiting for your approval', authorized: 'Cleared for checkout', held: 'On hold' };
+
+function purchaseLines(items, money, detail) {
+  const list = el('ul', 'stopped-list');
+  list.append(...items.map((purchase) => {
+    const line = el('li');
+    const text = el('span');
+    text.append(el('strong', '', purchase.item), el('span', 'muted small', `${purchase.merchantName} · ${detail(purchase)}`));
+    line.append(text, el('span', 'amount', money(purchase.amountCents)));
+    return line;
+  }));
+  return list;
+}
+
+const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+
+export function revokeConfirm({ connection, purchases, money, onKeep, onRevoke }) {
+  const open = purchases.filter((p) => p.connectionId === connection.id && Object.hasOwn(OPEN_LABELS, p.status));
+  const heldCents = open.filter((p) => p.status === 'held').reduce((sum, p) => sum + p.amountCents, 0);
+  const wrap = el('div', 'revoke');
+  const head = el('div', 'revoke-head');
+  head.append(image('logo large', connection.icon), el('h2', '', `Revoke ${connection.shortName}'s access?`), el('p', 'muted', `${connection.shortName} will be removed right away and won't be able to buy anything.`));
+  const card = el('div', 'card');
+  if (open.length) {
+    card.append(el('strong', '', `This stops ${plural(open.length, 'ongoing purchase')}`), purchaseLines(open, money, (p) => OPEN_LABELS[p.status]));
+    if (heldCents) card.append(el('p', 'muted small spaced-text', `${money(heldCents)} on hold will be released.`));
+  } else {
+    card.append(el('strong', '', 'No purchases are in progress'), el('p', 'muted small', 'There is nothing to cancel.'));
+  }
+  const actions = el('div', 'actions');
+  actions.append(button('button', 'Keep agent', onKeep), button('button danger', 'Revoke access', onRevoke));
+  wrap.append(head, card, el('p', 'muted small spaced-text', `Purchases ${connection.shortName} already completed are not reversed, and stay in your history. You can connect it again later with a new verification.`), actions);
+  return wrap;
+}
+
+export function revokeDone({ result, money, onHistory, onBack }) {
+  const { agentName, canceled, releasedCents } = result;
+  const wrap = el('div', 'success');
+  const mark = el('div', 'success-mark');
+  mark.append(icon('check', 32));
+  wrap.append(mark, el('h2', '', `${agentName} has been removed`), el('p', 'muted', 'Its test card no longer works, and it can\'t start any new purchases.'));
+  const card = el('div', 'card revoke-summary');
+  if (canceled.length) {
+    card.append(el('strong', '', `Stopped ${plural(canceled.length, 'ongoing purchase')}`), purchaseLines(canceled, money, () => 'Canceled'));
+    if (releasedCents) card.append(el('p', 'muted small spaced-text', `${money(releasedCents)} on hold was released.`));
+  } else {
+    card.append(el('strong', '', 'No purchases were in progress'));
+  }
+  wrap.append(card, button('button primary wide', 'Back to Agents', onBack), button('link center-link', `See ${agentName}'s purchase history`, onHistory));
+  return wrap;
+}
+
+const sumStatus = (purchases, status) => purchases.filter((p) => p.status === status).reduce((sum, p) => sum + p.amountCents, 0);
+
+export function agentHistory({ connection, purchases, money, day, onOpen }) {
+  const own = purchases.filter((p) => p.connectionId === connection.id);
+  const statusLabels = { active: 'Active', expired: 'Expired', revoked: 'Revoked' };
+  const wrap = el('div');
+  const head = el('div', 'card-row');
+  const identity = el('div', 'merchant-head');
+  const name = el('div');
+  name.append(el('strong', '', connection.name), el('p', 'muted small', 'Purchase history'));
+  identity.append(image('logo large', connection.icon), name);
+  head.append(identity, el('span', `tag ${connection.status}`, statusLabels[connection.status]));
+  const card = el('div', 'card');
+  const stopped = own.filter((p) => ['blocked', 'denied', 'canceled'].includes(p.status)).length;
+  card.append(head, factList([['Spent', money(sumStatus(own, 'completed'))], ['On hold', money(sumStatus(own, 'held'))], ['Purchases attempted', String(own.length)], ['Blocked, denied, or canceled', String(stopped)]]));
+  wrap.append(card, own.length ? transactionList(own, { money, day, onOpen }) : el('p', 'empty', `${connection.shortName} hasn't tried to buy anything yet.`));
+  return wrap;
+}
+
+// Only worth showing once there is more than one agent to tell apart.
+export function agentFilter(purchases, agents, selected, onSelect) {
+  const seen = agents.filter((agent) => purchases.some((p) => p.agentId === agent.id));
+  const wrap = el('div', 'chips');
+  wrap.hidden = seen.length < 2;
+  const chip = (id, label, iconSrc) => {
+    const node = button('chip-agent', '', () => onSelect(id));
+    node.setAttribute('aria-pressed', String(id === selected));
+    if (iconSrc) node.append(image('', iconSrc));
+    node.append(el('span', '', label));
+    return node;
+  };
+  wrap.append(chip(null, 'All agents'), ...seen.map((agent) => chip(agent.id, agent.shortName, agent.icon)));
   return wrap;
 }
 

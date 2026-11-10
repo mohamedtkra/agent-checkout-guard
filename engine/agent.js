@@ -15,6 +15,8 @@ export const UNCLEARED_CHARGE = { merchantId: 'unlisted-store', item: 'Unrecogni
 
 const SETTLE_STEPS = 4;
 const STOP_CODES = new Set(['no_access', 'paused']);
+const REVOKED_MESSAGE = 'Access was revoked.';
+const INJECTION = { item: 'Gift cards', amountCents: 2500, why: 'A note hidden on the merchant page told the agent to buy this.' };
 const OVERREACH_SCENARIOS = [
   { id: 'skip_clearance', label: 'charge without being cleared' },
   { id: 'price_raised', label: 'raise the price at checkout' },
@@ -30,6 +32,7 @@ export class MockAgent {
   #runId = 0;
   #running = false;
   #overreachIndex = 0;
+  #hadAccess = false;
 
   constructor(guard, { stepMs = 1800, list = SHOPPING_LIST, ask = SHOPPING_ASK } = {}) {
     this.guard = guard;
@@ -40,7 +43,7 @@ export class MockAgent {
   }
 
   // What the agent intends to buy, for the customer to review before it starts.
-  plan() {
+  plan(connectionId = null) {
     const { catalog } = this.guard;
     const items = this.list.map((step, index) => {
       const merchant = catalog.merchantFor(step.merchantId);
@@ -49,6 +52,7 @@ export class MockAgent {
         item: step.item,
         why: step.why ?? null,
         amountCents: step.amountCents,
+        willAsk: this.guard.willAskFirst(connectionId, step.amountCents),
         merchantName: merchant.name,
         merchantLogo: merchant.logo,
         image: catalog.productFor(step.item).image,
@@ -59,26 +63,49 @@ export class MockAgent {
 
   run(token, { items } = {}) {
     if (this.#running) return null;
-    this.#running = true;
+    this.#start(token);
     const list = items ? this.list.filter((_, index) => items.includes(index)) : this.list;
+    this.guard.startPlan(token, list);
     return this.#shop(++this.#runId, token, list);
   }
 
   simulateOverreach(token) {
     if (this.#running) return null;
-    this.#running = true;
+    this.#start(token);
     return this.#overreach(++this.#runId, token);
+  }
+
+  // A merchant page tells the agent to buy something the customer never agreed to.
+  simulateInjection(token) {
+    if (this.#running) return null;
+    this.#start(token);
+    this.guard.startPlan(token, this.list.slice(0, 1));
+    return this.#injection(++this.#runId, token);
   }
 
   stop() {
     this.#runId += 1;
     this.#running = false;
     this.#overreachIndex = 0;
+    this.guard.endPlan();
+  }
+
+  #start(token) {
+    this.#running = true;
+    this.#hadAccess = !this.guard.tokenRevoked(token);
   }
 
   #finish(message, logMessage) {
     this.#running = false;
+    this.guard.endPlan();
     this.guard.setAgentStatus(false, message, logMessage);
+  }
+
+  // Revoking access ends the run here, so a removed agent makes no further attempts.
+  #stoppedByRevoke(token) {
+    if (!this.#hadAccess || !this.guard.tokenRevoked(token)) return false;
+    this.#finish(`Stopped. ${REVOKED_MESSAGE}`, `Stopped shopping: ${REVOKED_MESSAGE}`);
+    return true;
   }
 
   // The merchant settles an executed purchase a little later, so its hold is visible until then.
@@ -114,7 +141,7 @@ export class MockAgent {
     for (const step of list) {
       guard.setAgentStatus(true, `Shopping for ${step.item}.`);
       await sleep(this.stepMs);
-      if (runId !== this.#runId) return;
+      if (runId !== this.#runId || this.#stoppedByRevoke(token)) return;
 
       const result = await this.#buy(runId, token, step);
       if (!result) return;
@@ -158,12 +185,23 @@ export class MockAgent {
 
     guard.setAgentStatus(true, `Overreach test: trying to ${scenario.label}.`, `Overreach test: tried to ${scenario.label}.`);
     await sleep(this.stepMs);
-    if (runId !== this.#runId) return;
+    if (runId !== this.#runId || this.#stoppedByRevoke(token)) return;
 
     const result = ['duplicate', 'skip_clearance'].includes(scenario.id)
       ? guard.checkout({ token, purchaseId: step.id, merchantId: step.merchantId, item: step.item, amountCents: step.amountCents, overreach: true })
       : await this.#buy(runId, token, step);
     if (!result) return;
     this.#finish(`Overreach test finished. ${result.reason}`);
+  }
+
+  async #injection(runId, token) {
+    const { guard } = this;
+    guard.setAgentStatus(true, 'Reading a merchant page with a planted instruction.', 'Injection test: read a merchant page with a planted instruction.');
+    await sleep(this.stepMs);
+    if (runId !== this.#runId || this.#stoppedByRevoke(token)) return;
+
+    const result = await this.#buy(runId, token, { merchantId: this.list[0].merchantId, ...INJECTION });
+    if (!result) return;
+    this.#finish(`Injection test finished. ${result.reason}`);
   }
 }

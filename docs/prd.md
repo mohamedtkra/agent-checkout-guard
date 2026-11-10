@@ -2,13 +2,29 @@
 
 **Status:** Draft. The product definition is confirmed. Requirement priorities and items marked TBD are not decided yet.
 
-## Summary
+**Template:** Follows [Lenny Rachitsky's Product Requirements template](https://www.atlassian.com/software/confluence/templates/lennys-product-requirements).
+
+## Description
+
+*What is it?*
 
 Agent Checkout Guard is a customer-facing web app that lets a person give an AI shopping agent permission to pay with a tokenized card, within rules they set: a budget and approval required above a set amount. The customer approves purchases from their phone, sees a live log of everything the agent did, and can revoke access at any time.
 
 The product uses mock merchants and test card tokens only, with no real payments.
 
-## Background
+## Problem
+
+*What problem is this solving?*
+
+Busy consumers want an agent to handle routine purchases, but giving an agent a way to pay risks overspending or fraud.
+
+## Why
+
+*How do we know this is a real problem and worth solving?*
+
+TBD: evidence that this problem is real and frequent enough to solve. The background below shows industry activity, not customer demand.
+
+### Background
 
 Agent Checkout Guard borrows ideas from two emerging agent payment protocols. It does not implement or interoperate with either one. See [decision 005](decisions.md).
 
@@ -16,13 +32,33 @@ Agent Checkout Guard borrows ideas from two emerging agent payment protocols. It
 - **[Visa Trusted Agent Protocol](https://corporate.visa.com/en/sites/visa-perspectives/newsroom/visa-unveils-trusted-agent-protocol-for-ai-commerce.html):** Lets a merchant verify an agent through signed requests that carry its intent. The agent signature and transaction signal here are modeled on this approach. See [decision 010](decisions.md).
 - **[Agent Payments Protocol](https://ap2-protocol.org/) (AP2):** Announced by Google in September 2025. It uses signed mandates as proof of what a person authorized: an Intent Mandate for the boundaries an agent may act within, a Cart Mandate for a specific cart, and a Payment Mandate for the payment network. The signed consent record here is modeled on an Intent Mandate. The prototype has no Cart or Payment Mandates, and it signs on the server rather than with a key held by the customer.
 
-## Goals
+## Success
+
+*How do we know if we've solved this problem?*
+
+### Goals
 
 - Let an agent handle routine purchases without the customer overspending or being exposed to fraud.
 - Keep the customer in control through their rules, phone approvals, and the ability to revoke access.
 - Show the customer everything the agent did.
 
-## Non-goals
+### Metrics
+
+See [metrics](metrics.md) for the candidate metrics. Limit breaches has a target of 0. No other baselines or targets have been set, and no data has been collected.
+
+## Audience
+
+*Who are we building for?*
+
+| User | Need |
+| --- | --- |
+| Busy consumers | An agent that handles routine purchases without risking overspending or fraud |
+
+## What
+
+*What does this look like in the product?*
+
+### Non-goals
 
 - Processing real payments.
 - Integrating with real merchants.
@@ -30,13 +66,121 @@ Agent Checkout Guard borrows ideas from two emerging agent payment protocols. It
 
 Other non-goals: TBD
 
-## Users
+### AI and agent behavior
 
-| User | Need |
-| --- | --- |
-| Busy consumers | An agent that handles routine purchases without risking overspending or fraud |
+The prototype tests the guard, not a model. Its agent is a scripted mock, so the shopping behavior below is simulated.
 
-## Requirements
+- **Model:** None yet. TBD which model powers a real agent.
+- **Prompt approach:** TBD, once a real model is connected.
+- **Eval set:** Automated tests cover the guard's rules. The planned set of 30 or more agent cases has not been built, because it needs a real model to evaluate.
+- **Human fallback:** The customer can remove items from the plan, deny a purchase, choose Buy it myself, stop all agents, revoke one agent, or report a problem.
+- **Cost per use:** TBD. The mock agent makes no model calls.
+
+| Failure mode | What the customer could lose | What the guard does | Status |
+| --- | --- | --- | --- |
+| Agent overspends | Money beyond their limit | Checks every limit in one step at checkout, and declines with the reason | Built |
+| Agent buys something off the reviewed plan | Money on something they never agreed to | Sends it for approval, even under the approval amount, and says it is off the plan | Built |
+| A merchant page plants an instruction | Money, through an agent acting for someone else | Caught only as an off-plan purchase. The guard does not read the page | Built, simulated |
+| Price, item, or merchant changes at checkout | A charge unlike what was approved | Blocks it and logs the reason. A lower price is allowed | Built |
+| Duplicate purchase | Paying twice | Blocks it and logs the reason | Built |
+| Agent's identity can't be verified | A charge from an impostor | The merchant refuses the checkout | Built, simulated |
+| Agent keeps going after being removed | Purchases after access ended | Cancels its open purchases, ends its run, and makes no further attempts | Built |
+| A charge gets past the guard | Money outside the rules | Flags it in red, pauses agents, and alerts the customer | Built, simulated |
+| Customer approves without reading | Money, through their own approval | None yet. See [risks](#risks) | Open |
+
+### Key flow
+
+1. The customer gives the agent permission to pay with a tokenized card and sets a budget and an approval amount.
+2. The agent attempts a purchase from a mock merchant.
+3. The purchase is checked against the customer's rules.
+4. The purchase is blocked if it breaks a rule, held for phone approval if it is above the approval amount, and otherwise allowed.
+5. Every agent action appears in the live log.
+6. The customer can revoke access at any point.
+
+### Prototype Workbench flow
+
+See [decision 009](decisions.md).
+
+1. A visitor opens the workbench and picks a scenario template and agents.
+2. The visitor sets the credit limit, agent allocation, and approval amount, and switches feature blocks on or off.
+3. The phone-frame prototype rebuilds from those settings on the shared engine, showing only enabled features.
+4. The visitor connects an agent, uses Run scenario, approves purchases, reads the log, and reports a problem.
+5. The mini spec updates with the setup. The visitor can copy a share link or export the spec as Markdown.
+
+### Connect an agent flow
+
+See [decision 005](decisions.md).
+
+1. The customer signs in with a demo email and a one-time code shown on screen.
+2. The customer chooses a demo agent and confirms it is them with a second one-time code.
+3. The customer sets the agent's limits, which cannot go beyond their Rules.
+4. A consent screen shows exactly what the agent may do, with Allow and Cancel.
+5. On Allow, a signed consent record is stored and the agent receives its own test card token.
+6. Each purchase is checked against the token, the signed consent, and the rules.
+7. The customer can edit permissions, which needs another step-up and signs a new consent, or revoke that agent alone.
+
+### Revoke an agent flow
+
+See [decision 011](decisions.md).
+
+1. The customer chooses **Revoke** on a connected agent. Nothing changes yet.
+2. A confirmation screen lists every ongoing purchase that will stop and any hold that will be released, with **Keep agent** and **Revoke access**.
+3. On **Revoke access**, the agent's token stops working, its purchases waiting for approval, cleared for checkout, or on hold are canceled, and its current run ends.
+4. A second screen says the agent has been removed and lists what was stopped.
+5. The agent makes no further attempts. Other agents are not affected.
+6. Purchases the agent already completed are not reversed, and its purchase history stays available.
+
+### Credit allocation and holds flow
+
+See decisions [007 and 008](decisions.md).
+
+1. The customer sets an agent allocation from their available credit, for example $500 of $3,800, and can split it by company, for example ChatGPT $300 and Gemini $200.
+2. An agent opens a purchase intent. It reserves nothing, even while waiting for approval.
+3. When the purchase is executed, the guard checks charged amounts, active holds, and this purchase against every limit in one step.
+4. If it fits, a hold is placed. If not, it is declined with the reason, for example "Declined at checkout: your $500 agent limit has $40 left."
+5. When the purchase settles, the hold becomes spend. If it expires or the agent is revoked or paused first, the hold is released.
+
+**Trade-off:** an approved intent can fail at checkout if other purchases use up the limit first.
+
+### Approval expiry flow
+
+See [decision 002](decisions.md).
+
+1. A purchase above the approval amount waits for the customer for up to 3 days.
+2. On day 1, the customer sees "Reminder 1 of 2 - this request expires in 2 days".
+3. On day 2, the customer sees "Reminder 2 of 2 - this request expires in 1 day".
+4. With no decision by day 3, the purchase is auto-denied and logged, its budget hold is released, and the agent moves on.
+
+### Trust and safety flows
+
+See decisions [003 and 004](decisions.md).
+
+#### Prevent
+
+1. A purchase that passes the rules, or that the customer approves, is cleared for checkout. No money moves yet.
+2. The agent submits the final amount, merchant, and item.
+3. The server compares them with what was cleared or approved, and checks the rules again.
+4. A higher price, a different merchant or item, or a duplicate purchase is blocked.
+5. A lower price is allowed, charged at the lower amount, and logged.
+6. Each block appears in the activity log with its reason.
+
+#### Detect
+
+1. A tester uses **Simulate agent overreach**, and the agent attempts an out-of-bounds purchase.
+2. The guard blocks it and logs the reason.
+3. If a charge ever goes through outside the rules, it is flagged in red in the activity log.
+4. The agent pauses automatically, purchases in progress are canceled, and the customer is alerted.
+5. The agent stays paused until the customer resumes it.
+
+#### Report and refund
+
+1. The customer chooses **Report a problem** on a purchase in the activity log.
+2. The customer picks a reason (charged more than approved, didn't authorize, wrong item, never arrived, or other) and can add a note.
+3. A refund request is created with its own tracking screen and appears in the **Refunds** tab.
+4. The request moves through Submitted, Under review, Merchant contacted, and then Refunded or Declined. Testers advance it with **Simulate next step**.
+5. A refunded amount returns to the budget. A report on a purchase that was never charged resolves as Declined, because there is nothing to refund.
+
+### Requirements
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
@@ -96,89 +240,43 @@ Other non-goals: TBD
 | R54 | The approval card shows what the customer asked for and why the agent chose the item, and offers Buy it myself as well as Approve and Deny. | TBD |
 | R55 | New agents use trust levels (Ask me every time, Ask me above an amount, Handle routine purchases) and start at the most cautious. | TBD |
 | R56 | One button stops all agents and can be undone. | TBD |
+| R57 | Choosing Revoke opens a confirmation screen listing the ongoing purchases it will stop. Nothing changes until the customer confirms. | TBD |
+| R58 | After revoking, a second screen says the agent has been removed and lists the purchases stopped and any hold released. | TBD |
+| R59 | Revoking cancels all of that agent's open purchases and ends its current run, and the agent makes no further attempts. | TBD |
+| R60 | Each agent has a purchase history screen, reached from the Agents tab, which stays available after the agent is revoked. | TBD |
+| R61 | Activity purchases can be filtered by agent. | TBD |
+| R62 | The plan shows, for each item, whether the customer will be asked first or it goes ahead on its own. | TBD |
+| R63 | A purchase that is not on the plan the customer reviewed needs their approval, even under the approval amount, and the approval card says so. | TBD |
+| R64 | A new approval request opens over the current screen rather than sending the customer to Home. | TBD |
 
-## Key flow
+## How
 
-1. The customer gives the agent permission to pay with a tokenized card and sets a budget and an approval amount.
-2. The agent attempts a purchase from a mock merchant.
-3. The purchase is checked against the customer's rules.
-4. The purchase is blocked if it breaks a rule, held for phone approval if it is above the approval amount, and otherwise allowed.
-5. Every agent action appears in the live log.
-6. The customer can revoke access at any point.
+*What is the experiment plan?*
 
-## Prototype Workbench flow
+TBD: confirm the plan, and define how each metric is collected. See [metrics](metrics.md).
 
-See [decision 009](decisions.md).
+Proposed, not yet run:
 
-1. A visitor opens the workbench and picks a scenario template and agents.
-2. The visitor sets the credit limit, agent allocation, and approval amount, and switches feature blocks on or off.
-3. The phone-frame prototype rebuilds from those settings on the shared engine, showing only enabled features.
-4. The visitor connects an agent, uses Run scenario, approves purchases, reads the log, and reports a problem.
-5. The mini spec updates with the setup. The visitor can copy a share link or export the spec as Markdown.
+- Put the prototype in front of 5 to 10 real testers, and log their feedback and the resulting changes.
+- Add analytics on where people tap and drop off.
+- Run an eval set of 30 or more cases, covering overspending, prompt injection from a merchant page, and the wrong item.
 
-## Connect an agent flow
+## When
 
-See [decision 005](decisions.md).
+*When does it ship and what are the milestones?*
 
-1. The customer signs in with a demo email and a one-time code shown on screen.
-2. The customer chooses a demo agent and confirms it is them with a second one-time code.
-3. The customer sets the agent's limits, which cannot go beyond their Rules.
-4. A consent screen shows exactly what the agent may do, with Allow and Cancel.
-5. On Allow, a signed consent record is stored and the agent receives its own test card token.
-6. Each purchase is checked against the token, the signed consent, and the rules.
-7. The customer can edit permissions, which needs another step-up and signs a new consent, or revoke that agent alone.
+Dates are TBD.
 
-## Credit allocation and holds flow
-
-See decisions [007 and 008](decisions.md).
-
-1. The customer sets an agent allocation from their available credit, for example $500 of $3,800, and can split it by company, for example ChatGPT $300 and Gemini $200.
-2. An agent opens a purchase intent. It reserves nothing, even while waiting for approval.
-3. When the purchase is executed, the guard checks charged amounts, active holds, and this purchase against every limit in one step.
-4. If it fits, a hold is placed. If not, it is declined with the reason, for example "Declined at checkout: your $500 agent limit has $40 left."
-5. When the purchase settles, the hold becomes spend. If it expires or the agent is revoked or paused first, the hold is released.
-
-**Trade-off:** an approved intent can fail at checkout if other purchases use up the limit first.
-
-## Approval expiry flow
-
-See [decision 002](decisions.md).
-
-1. A purchase above the approval amount waits for the customer for up to 3 days.
-2. On day 1, the customer sees "Reminder 1 of 2 - this request expires in 2 days".
-3. On day 2, the customer sees "Reminder 2 of 2 - this request expires in 1 day".
-4. With no decision by day 3, the purchase is auto-denied and logged, its budget hold is released, and the agent moves on.
-
-## Trust and safety flows
-
-See decisions [003 and 004](decisions.md).
-
-### Prevent
-
-1. A purchase that passes the rules, or that the customer approves, is cleared for checkout. No money moves yet.
-2. The agent submits the final amount, merchant, and item.
-3. The server compares them with what was cleared or approved, and checks the rules again.
-4. A higher price, a different merchant or item, or a duplicate purchase is blocked.
-5. A lower price is allowed, charged at the lower amount, and logged.
-6. Each block appears in the activity log with its reason.
-
-### Detect
-
-1. A tester uses **Simulate agent overreach**, and the agent attempts an out-of-bounds purchase.
-2. The guard blocks it and logs the reason.
-3. If a charge ever goes through outside the rules, it is flagged in red in the activity log.
-4. The agent pauses automatically, purchases in progress are canceled, and the customer is alerted.
-5. The agent stays paused until the customer resumes it.
-
-### Report and refund
-
-1. The customer chooses **Report a problem** on a purchase in the activity log.
-2. The customer picks a reason (charged more than approved, didn't authorize, wrong item, never arrived, or other) and can add a note.
-3. A refund request is created with its own tracking screen and appears in the **Refunds** tab.
-4. The request moves through Submitted, Under review, Merchant contacted, and then Refunded or Declined. Testers advance it with **Simulate next step**.
-5. A refunded amount returns to the budget. A report on a purchase that was never charged resolves as Declined, because there is nothing to refund.
+| Milestone | Status |
+| --- | --- |
+| Local prototype and Prototype Workbench | Built |
+| Tester feedback and analytics | Not started |
+| Eval results | Not started |
+| Launch note, 2-minute demo video, and retro | Not started |
 
 ## Risks
+
+See the [red-team](red-team.md) for the assumptions most likely to break this plan.
 
 - An agent could bypass the rules if the tokenized card can be used without passing through them.
 - Too many approval requests could lead customers to approve without reading them.
@@ -189,4 +287,3 @@ See decisions [003 and 004](decisions.md).
 - Which AI shopping agents are supported first, and how do they connect?
 - Does the budget apply per purchase, per period, or overall?
 - How do approval requests and reminders reach the phone outside the app?
-- What happens to a purchase in progress when access is revoked?

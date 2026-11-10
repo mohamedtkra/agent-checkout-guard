@@ -1,4 +1,4 @@
-import { allClear, approvalRows, approvalSheet, balanceCard, button, codeBubble, el, factList, hideSheet, icon, image, liveStatus, planList, receipt, selectedPlanItems, showSheet, steps, successPanel, trailList, transactionList, trustLabel, trustPicker } from './shared/ui.js';
+import { agentFilter, agentHistory, allClear, approvalRows, approvalSheet, balanceCard, button, codeBubble, el, factList, hideSheet, icon, image, liveStatus, planList, planSummary, receipt, revokeConfirm, revokeDone, selectedPlanItems, showSheet, steps, successPanel, trailList, transactionList, trustLabel, trustPicker } from './shared/ui.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -6,7 +6,9 @@ const CONNECTION_LABELS = { active: 'Active', expired: 'Expired', revoked: 'Revo
 const ACTOR_LABELS = { customer: 'You', agent: 'Agent', guard: 'Guard', payment: 'Test payment', refund: 'Refunds', reminder: 'Reminder', clock: 'Test clock', merchant: 'Merchant', security: 'Security' };
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CONNECTION_DAYS = 30;
-const PARENT_TABS = { report: 'activity', refund: 'activity', purchase: 'activity', connect: 'agents', plan: 'home' };
+const PARENT_TABS = { report: 'activity', refund: 'activity', purchase: 'activity', connect: 'agents', agent: 'agents', revoke: 'agents', plan: 'home' };
+// An approval request waits for the customer on these screens rather than interrupting them.
+const UNINTERRUPTED_TABS = ['report', 'connect', 'plan', 'revoke'];
 const CONNECT_STEPS = ['Verify', 'Limits', 'Review'];
 const TAB_TITLES = { home: 'Home', agents: 'Agents', activity: 'Activity', rules: 'Rules' };
 const APPROVAL_WARNING = "Approval doesn't reserve funds; this can still fail if your limit is used up first.";
@@ -37,6 +39,9 @@ let openRefundId = null;
 let openPurchaseId = null;
 let purchaseReturnTab = 'activity';
 let connectFlow = null;
+let revokeFlow = null;
+let historyConnectionId = null;
+let activityAgentId = null;
 const seenPending = new Set();
 
 let toastTimer;
@@ -323,6 +328,70 @@ function renderReminders() {
   }));
 }
 
+function openHistory(connectionId) {
+  historyConnectionId = connectionId;
+  renderHistory();
+  showTab('agent');
+}
+
+function renderHistory() {
+  const connection = state?.connections.find((c) => c.id === historyConnectionId);
+  if (!connection) {
+    $('#agent-detail').replaceChildren();
+    return;
+  }
+  $('#agent-detail').replaceChildren(agentHistory({ connection, purchases: state.purchases, money, day, onOpen: openPurchase }));
+}
+
+function openRevoke(connection) {
+  revokeFlow = { connectionId: connection.id, result: null, busy: false };
+  renderRevoke();
+  showTab('revoke');
+}
+
+function endRevoke() {
+  revokeFlow = null;
+  showTab('agents');
+}
+
+async function confirmRevoke() {
+  if (revokeFlow.busy) return;
+  revokeFlow.busy = true;
+  try {
+    const { revocation } = await post(`/api/connections/${revokeFlow.connectionId}/revoke`);
+    revokeFlow.result = revocation;
+    renderRevoke();
+  } catch (error) {
+    revokeFlow.busy = false;
+    toast(error.message);
+  }
+}
+
+// The confirmation stays current while the agent works, so it always lists what would really stop.
+function renderRevoke() {
+  if (!revokeFlow) return;
+  if (revokeFlow.result) {
+    if (revokeFlow.shown) return;
+    revokeFlow.shown = true;
+    const { connectionId } = revokeFlow;
+    $('#revoke-body').replaceChildren(revokeDone({
+      result: revokeFlow.result,
+      money,
+      onBack: endRevoke,
+      onHistory: () => { revokeFlow = null; openHistory(connectionId); },
+    }));
+    window.scrollTo(0, 0);
+    return;
+  }
+  const connection = state.connections.find((c) => c.id === revokeFlow.connectionId && c.status === 'active');
+  if (!connection) {
+    toast('This agent is no longer connected.');
+    endRevoke();
+    return;
+  }
+  $('#revoke-body').replaceChildren(revokeConfirm({ connection, purchases: state.purchases, money, onKeep: endRevoke, onRevoke: confirmRevoke }));
+}
+
 function connectionCard(connection) {
   const card = el('li', connection.status === 'active' ? 'card' : 'card inactive');
   const head = el('div', 'card-row');
@@ -359,12 +428,13 @@ function connectionCard(connection) {
     keyId: consent.keyId,
   }, null, 2)));
   more.append(record);
-  card.append(more);
+  const attempts = state.purchases.filter((p) => p.connectionId === connection.id).length;
+  card.append(more, button('link agent-history-link', `Purchase history (${attempts})`, () => openHistory(connection.id)));
 
   if (connection.status === 'active') {
     const actions = el('div', 'actions');
     actions.append(
-      button('button', 'Revoke', () => act(`/api/connections/${connection.id}/revoke`, {}, `${connection.shortName} revoked.`)),
+      button('button', 'Revoke', () => openRevoke(connection)),
       button('button', 'Edit permissions', () => startConnect(state.demoAgents.find((a) => a.id === connection.agentId), connection)),
     );
     card.append(actions);
@@ -374,7 +444,7 @@ function connectionCard(connection) {
 
 function renderConnections() {
   const available = state.demoAgents.filter((agent) => !activeConnections().some((c) => c.agentId === agent.id));
-  const serialized = JSON.stringify([state.connections, available.map((a) => a.id)]);
+  const serialized = JSON.stringify([state.connections, available.map((a) => a.id), state.purchases.length]);
   if (serialized === renderedConnections) return;
   renderedConnections = serialized;
 
@@ -528,8 +598,11 @@ function renderAgent() {
   $('#agent-status').hidden = state.agent.running;
   $('#run-agent').disabled = state.agent.running || state.paused;
   $('#simulate-overreach').disabled = state.agent.running || !hasAgent;
+  $('#simulate-injection').disabled = state.agent.running || !hasAgent;
   $('#run-agent').textContent = state.agent.running ? 'Agent is shopping…' : 'Review the plan';
-  $('#purchases').replaceChildren(state.purchases.length ? transactionList(state.purchases, { money, day, onOpen: openPurchase }) : el('p', 'empty', 'No purchases yet.'));
+  const shown = activityAgentId ? state.purchases.filter((p) => p.agentId === activityAgentId) : state.purchases;
+  $('#activity-filter').replaceChildren(agentFilter(state.purchases, state.demoAgents, activityAgentId, (id) => { activityAgentId = id; render(); }));
+  $('#purchases').replaceChildren(shown.length ? transactionList(shown, { money, day, onOpen: openPurchase }) : el('p', 'empty', 'No purchases yet.'));
 }
 
 function renderApprovals() {
@@ -541,10 +614,7 @@ function renderApprovals() {
 
   const fresh = pending.find((purchase) => !seenPending.has(purchase.id));
   pending.forEach((purchase) => seenPending.add(purchase.id));
-  if (fresh && !['report', 'connect', 'plan'].includes(currentTab)) {
-    showTab('home');
-    if (!sheetPurchaseId) openApproval(fresh.id);
-  }
+  if (fresh && !UNINTERRUPTED_TABS.includes(currentTab) && !sheetPurchaseId) openApproval(fresh.id);
   renderApprovalSheet();
 }
 
@@ -654,6 +724,8 @@ function render() {
   renderRefunds();
   renderRefundDetail();
   renderPurchaseDetail();
+  renderHistory();
+  renderRevoke();
 }
 
 function setLive(isLive) {
@@ -685,6 +757,9 @@ function showSignedOut(notice) {
   state = null;
   currentUser = null;
   connectFlow = null;
+  revokeFlow = null;
+  historyConnectionId = null;
+  activityAgentId = null;
   closeApproval();
   formDirty = false;
   renderedRules = '';
@@ -781,13 +856,12 @@ document.querySelectorAll('[data-segment]').forEach((node) => {
 async function openPlan() {
   try {
     planConnectionId = selectedAgentId;
-    const plan = await post('/api/agent/plan');
+    const plan = await post('/api/agent/plan', selectedConnection());
     $('#plan-ask').textContent = `You asked: ${plan.ask}`;
     $('#plan-items').replaceChildren(planList(plan, money));
     const updateTotal = () => {
       const chosen = selectedPlanItems($('#plan-items'));
-      const total = plan.items.filter((item) => chosen.includes(item.index)).reduce((sum, item) => sum + item.amountCents, 0);
-      $('#plan-total').textContent = `Total if everything goes ahead: ${money(total)}`;
+      $('#plan-total').textContent = planSummary(plan, chosen, money);
       $('#plan-proceed').disabled = chosen.length === 0;
     };
     $('#plan-items').onchange = updateTotal;
@@ -868,6 +942,8 @@ $('#plan-proceed').addEventListener('click', () => {
   showTab('home');
 });
 $('#simulate-overreach').addEventListener('click', () => act('/api/agent/overreach', selectedConnection()));
+$('#simulate-injection').addEventListener('click', () => act('/api/agent/injection', selectedConnection()));
+$('#agent-back').addEventListener('click', () => showTab('agents'));
 $('#simulate-uncleared').addEventListener('click', () => act('/api/simulate/uncleared-charge'));
 $('#simulate-next-day').addEventListener('click', () => act('/api/simulate/next-day'));
 $('#report-back').addEventListener('click', () => showTab('activity'));

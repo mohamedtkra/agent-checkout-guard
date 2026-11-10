@@ -21,6 +21,9 @@
 | Unverified agents refused | Number of checkouts stopped because the merchant could not verify the agent | TBD | TBD |
 | Plans changed before running | Share of agent plans where the customer removes an item or does it themselves | TBD | TBD |
 | Approved purchases declined at checkout | Share of customer-approved purchases later declined because a limit was used up first | TBD | TBD |
+| Off-plan purchases sent for approval | Share of attempted purchases outside the reviewed plan that wait for the customer or are blocked | TBD | TBD |
+| Off-plan purchases approved | Share of off-plan approval requests the customer approves, as a sign of approving without reading | TBD | TBD |
+| Attempts after revocation | Number of purchase attempts by an agent after its access is revoked | TBD | TBD |
 
 ## Measurement plan
 

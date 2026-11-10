@@ -20,6 +20,8 @@ Agent Checkout Guard is a customer-facing web app that lets a person give an AI 
 | [PRD](docs/prd.md) | Users, requirements, and scope |
 | [Decisions](docs/decisions.md) | Log of significant decisions and their reasoning |
 | [Metrics](docs/metrics.md) | How success will be measured |
+| [Red-team](docs/red-team.md) | The assumptions most likely to break the plan, and how to test them |
+| [Test scenarios](docs/test-scenarios.md) | Scenarios for revoking, purchase history, and the reviewed plan |
 | [Retro](docs/retro.md) | What worked, what did not, and what to change |
 | [Changelog](CHANGELOG.md) | Notable changes to the project |
 
@@ -44,15 +46,17 @@ npm test
 
 1. Sign in with any made-up email and the code shown on screen.
 2. On **Agents**, connect an agent. Enter the step-up code, pick a trust level, and review the consent screen. Change the allocation or split it by company on **Rules**.
-3. On **Home**, use **Review the plan** to see what the agent intends to buy. Remove anything you don't want, then proceed.
-4. When a purchase needs your decision, it slides up from the bottom of **Home**. Approve it, deny it, or buy it yourself. Use **Stop all agents** at any time.
+3. On **Home**, use **Review the plan** to see what the agent intends to buy and which items will come back to you. Remove anything you don't want, then proceed.
+4. When a purchase needs your decision, it slides up from the bottom of the screen. Approve it, deny it, or buy it yourself. Use **Stop all agents** at any time.
 5. While a purchase waits for approval, use **Simulate next day** under **Demo tools** on **Home** to see the reminders and the auto-deny on day 3.
 6. Use **Simulate agent overreach** under **Demo tools** to watch the guard block an out-of-bounds purchase. Each tap tries a different one.
-7. Use **Simulate charge that slips past the guard** to see a charge flagged in red, agents paused, and the customer alerted.
-8. On **Activity**, open **Log**, use **Report a problem** on a purchase, and follow the request with **Simulate next step**.
-9. On **Activity**, tap any purchase to see its receipt, the merchant, and why it happened.
-10. On **Agents**, connect a second agent, then try **Edit permissions** or **Revoke**. Revoking one agent leaves the others working.
-11. Use **Reset demo** under **Demo tools** to clear purchases and rules. Connected agents and the audit log are kept.
+7. Use **Simulate planted instruction on a merchant page** to watch an off-plan purchase come to you for approval, even though it is under your approval amount.
+8. Use **Simulate charge that slips past the guard** to see a charge flagged in red, agents paused, and the customer alerted.
+9. On **Activity**, open **Log**, use **Report a problem** on a purchase, and follow the request with **Simulate next step**.
+10. On **Activity**, tap any purchase to see its receipt, the merchant, and why it happened. With two agents, filter the list by agent.
+11. On **Agents**, use **Purchase history** to see everything one agent has tried to buy.
+12. On **Agents**, connect a second agent, then try **Edit permissions** or **Revoke**. Revoke asks you to confirm, lists the ongoing purchases it will stop, and then confirms the agent has been removed. Revoking one agent leaves the others working, and its history stays available.
+13. Use **Reset demo** under **Demo tools** to clear purchases and rules. Connected agents and the audit log are kept.
 
 The guard logic lives in `engine/` and is shared by this app and the workbench (`workbench.html`, `workbench/`).
 

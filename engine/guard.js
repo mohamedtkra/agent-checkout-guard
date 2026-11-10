@@ -53,6 +53,7 @@ const OPEN_STATUSES = [...INTENT_STATUSES, 'held'];
 const PERSISTED_FIELDS = ['rules', 'agentShares', 'credit', 'purchases', 'refunds', 'alerts', 'paused', 'pauseReason'];
 const FLAGGED_PAUSE = 'The agent is paused after a flagged charge.';
 const CUSTOMER_STOP = 'You stopped all agents.';
+const OFF_PLAN_REASON = 'This is not on the plan you reviewed.';
 
 // How much a new agent is trusted, as the approval amount each level produces.
 const TRUST_APPROVALS = {
@@ -90,6 +91,7 @@ export class Guard {
   #listeners = new Set();
   #clockOffsetMs = 0;
   #auditFloor = 0;
+  #activePlan = null;
   #persist;
   #appendAudit;
 
@@ -115,7 +117,7 @@ export class Guard {
     const canceled = this.#cancelOpen('The server restarted before this purchase finished.', { statuses: INTENT_STATUSES });
     const executed = this.purchases.filter((p) => p.status === 'held');
     for (const purchase of executed) this.#charge(purchase, purchase.reason);
-    if (canceled || executed.length) this.#persist(this.#serialize());
+    if (canceled.length || executed.length) this.#persist(this.#serialize());
   }
 
   #nowMs() {
@@ -128,6 +130,7 @@ export class Guard {
 
   #clear() {
     this.#clockOffsetMs = 0;
+    this.#activePlan = null;
     this.rules = structuredClone(DEFAULT_RULES);
     this.agentShares = {};
     this.credit = { ...DEFAULT_CREDIT };
@@ -219,6 +222,7 @@ export class Guard {
       customerApproved: false,
       flagged: false,
       overreach,
+      offPlan: false,
       why,
       ask,
       consentVersion: null,
@@ -428,13 +432,21 @@ export class Guard {
     return changed;
   }
 
-  #cancelOpen(reason, { connectionId = null, statuses = OPEN_STATUSES } = {}) {
+  #cancelOpen(reason, { connectionId = null, statuses = OPEN_STATUSES, code = null } = {}) {
     const open = this.purchases.filter((p) => statuses.includes(p.status) && (connectionId === null || p.connectionId === connectionId));
     for (const purchase of open) {
+      if (code) purchase.code = code;
       this.#settle(purchase, 'canceled', reason);
       this.#record('guard', `Canceled ${purchase.item} at ${purchase.merchantName}: ${reason}`, purchase);
     }
-    return open.length > 0;
+    return open;
+  }
+
+  // Only the plan the customer reviewed counts. The agent's own account of what it is buying does not.
+  #isOffPlan(purchase) {
+    const plan = this.#activePlan;
+    if (!plan || plan.connectionId !== purchase.connectionId) return false;
+    return !plan.items.some((step) => step.merchantId === purchase.merchantId && step.item === purchase.item && purchase.amountCents <= step.amountCents);
   }
 
   #spendingByCategory() {
@@ -580,12 +592,43 @@ export class Guard {
   }
 
   // Only this agent's token stops working and only its open purchases are canceled.
+  // Returns what was stopped, so the customer can be told exactly that.
   revokeConnection(connectionId) {
     if (!this.connections.revoke(connectionId, this.#nowMs())) throw new GuardError('Connection not found.', 404);
     const name = this.connections.list(this.#nowMs()).find((c) => c.id === connectionId).shortName;
+    const releasedCents = this.#sumBy('connectionId', connectionId, ['held']);
     this.#record('customer', `Revoked ${name}'s access. Its test token no longer works.`);
-    this.#cancelOpen('Access was revoked before the charge.', { connectionId });
+    if (this.#activePlan?.connectionId === connectionId) this.#activePlan = null;
+    const canceled = this.#cancelOpen('Access was revoked before the charge.', { connectionId, code: 'no_access' });
+    for (const purchase of canceled) this.#addTrail(purchase, 'Access revoked', `You removed ${name} before this was charged.`);
     this.#notify();
+    return {
+      connectionId,
+      agentName: name,
+      releasedCents,
+      canceled: canceled.map(({ id, item, merchantName, amountCents }) => ({ id, item, merchantName, amountCents })),
+    };
+  }
+
+  // Whether this token has lost its connection for good. An expired or paused agent has not.
+  tokenRevoked(token) {
+    return !this.connections.authorize(token, this.#nowMs()).connection;
+  }
+
+  // Fixes what the customer agreed to before the agent starts. Anything else needs their approval.
+  startPlan(token, items) {
+    const { connection } = this.connections.authorize(token, this.#nowMs());
+    this.#activePlan = connection ? { connectionId: connection.id, items } : null;
+  }
+
+  endPlan() {
+    this.#activePlan = null;
+  }
+
+  // Tells the customer, before the agent starts, which items will come back to them. Null if it can't be known.
+  willAskFirst(connectionId, amountCents) {
+    const limits = connectionId && this.connections.limits(connectionId, this.#nowMs());
+    return limits ? this.#assess(amountCents, limits).needsApproval ?? null : null;
   }
 
   // The customer's panic button. Reversible, so it pauses agents rather than disconnecting them.
@@ -634,14 +677,18 @@ export class Guard {
       this.#addTrail(purchase, 'Your rules', `Agent limit ${shortMoney(this.rules.budgetCents)}, approval above ${shortMoney(Math.min(this.rules.approvalCents, auth.limits.approvalCents))}.`);
       this.#addTrail(purchase, 'Your consent', `${purchase.agentName}, consent version ${purchase.consentVersion}.`);
       const { problem, needsApproval, reason } = this.#assess(amountCents, auth.limits);
+      purchase.offPlan = this.#isOffPlan(purchase);
+      if (purchase.offPlan) this.#addTrail(purchase, 'Not on your plan', OFF_PLAN_REASON);
       if (problem) {
         this.#block(purchase, problem.code, problem.reason);
       } else if (this.#isDuplicate(purchase)) {
         this.#block(purchase, 'duplicate', 'Duplicate of a recent purchase with the same merchant, item, and amount.');
-      } else if (needsApproval) {
-        purchase.reason = reason;
+      } else if (purchase.offPlan && !this.features.approvals) {
+        this.#block(purchase, 'off_plan', OFF_PLAN_REASON);
+      } else if (needsApproval || purchase.offPlan) {
+        purchase.reason = purchase.offPlan ? OFF_PLAN_REASON : reason;
         this.#setExpiry(purchase, Date.parse(purchase.at));
-        this.#record('guard', `Waiting for your approval on ${item}: ${reason}`, purchase);
+        this.#record('guard', `Waiting for your approval on ${item}: ${purchase.reason}`, purchase);
       } else {
         purchase.cleared = true;
         purchase.status = 'authorized';

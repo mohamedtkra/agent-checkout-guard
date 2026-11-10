@@ -49,11 +49,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Stop all agents, which can be undone.
 - Buy it myself, and what you asked for and why the agent chose it, on the approval card.
 - Decision 010, and related requirements and metrics.
+- A purchase history screen for each agent, which stays available after the agent is revoked, and an agent filter on Activity.
+- The guard now enforces the plan the customer reviewed, and a Simulate planted instruction tool shows an off-plan purchase being caught.
+- The plan now shows which items will ask the customer first.
+- An AI and agent behavior section in the PRD, decision 011, a red-team, test scenarios, and related requirements and metrics.
 
 ### Changed
 
+- Revoke now asks for confirmation, lists the ongoing purchases it will stop, and ends with a screen confirming the agent has been removed.
+- A revoked agent now ends its run at once and makes no further attempts.
+- New approval requests now open over the current screen instead of sending you to Home.
+
 - Replaced the assumed product description in the README and one-pager with the confirmed one.
 - Updated the PRD and metrics to match the confirmed product definition.
+- Restructured the PRD to follow Lenny Rachitsky's Product Requirements template.
 - Purchases now clear the guard first and are charged only after a separate final checkout.
 - A lower final price is now allowed and logged. Only higher final prices are blocked.
 - Access is now per agent. Revoke moved from the header to each agent, and each demo agent belongs to one agent company.

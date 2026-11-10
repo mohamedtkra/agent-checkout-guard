@@ -86,6 +86,7 @@
           <summary>Demo tools</summary>
           <p class="muted small spaced-text">Each overreach tap tries a different out-of-bounds purchase.</p>
           <button id="simulate-overreach" class="button wide spaced" type="button">Simulate agent overreach</button>
+          <button id="simulate-injection" class="button wide spaced" type="button">Simulate planted instruction on a merchant page</button>
           <button id="simulate-uncleared" class="button wide spaced" type="button">Simulate charge that slips past the guard</button>
           <p id="sim-day" class="muted small spaced-text"></p>
           <button id="simulate-next-day" class="button wide spaced" type="button">Simulate next day</button>
@@ -113,6 +114,16 @@
         <div class="section-head"><h2>Connect an agent</h2></div>
         <p class="muted small">These agents are simulated for this demo. It is not connected to or affiliated with OpenAI or Google.</p>
         <ul id="available-agents" class="cards spaced-list"></ul>
+      </section>
+
+      <section id="tab-agent" class="screen" aria-labelledby="agent-title" hidden>
+        <button id="agent-back" class="back" type="button">‹ Agents</button>
+        <h2 id="agent-title" class="visually-hidden">Agent purchase history</h2>
+        <div id="agent-detail"></div>
+      </section>
+
+      <section id="tab-revoke" class="screen" aria-labelledby="appbar-title" hidden>
+        <div id="revoke-body"></div>
       </section>
 
       <section id="tab-connect" class="screen" aria-labelledby="connect-title" hidden>
@@ -192,7 +203,7 @@
           <button type="button" data-segment="log" aria-pressed="false">Log</button>
           <button type="button" data-segment="refunds" aria-pressed="false">Refunds</button>
         </div>
-        <div id="segment-purchases"><div id="purchases"></div></div>
+        <div id="segment-purchases"><div id="activity-filter"></div><div id="purchases"></div></div>
         <div id="segment-log" hidden>
           <p class="muted small status-line"><span id="live-state">Connecting…</span> Newest first.</p>
           <ol id="log" class="log"></ol>

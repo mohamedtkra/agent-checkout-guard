@@ -21,6 +21,19 @@ A running log of significant project decisions. Add new entries at the top, and 
 
 ## Log
 
+## 011: Revoking is confirmed and final, and the reviewed plan is enforced
+
+- **Date:** 2026-11-09
+- **Status:** Accepted
+
+**Context:** Revoke took effect on one tap, and a running agent attempted one more purchase afterward. An agent's history could only be found in one mixed list, and new approval requests pulled the customer away from it. A red-team also showed that a low-priced purchase the customer never agreed to would clear the guard, because the rules only looked at the amount.
+
+**Decision:** Revoke opens a confirmation listing what it will stop, and a second screen reports what was stopped. Revoking cancels the agent's open purchases and ends its run. Completed purchases are not reversed. Each agent has its own purchase history, which outlives the connection. The guard records the plan the customer reviewed, and anything off it needs approval, or is blocked when approvals are switched off. A new approval request opens over the current screen.
+
+**Alternatives considered:** An undo after revoking would be reversible, but Stop all agents already covers that, and revoking should mean the agent is really gone. Blocking off-plan purchases outright is simpler, but the customer may welcome a sensible substitution, so they decide. Trusting the agent to label purchases as planned was rejected, because the agent is what the guard is checking.
+
+**Consequences:** Revoking takes one more tap, which is deliberate. Off-plan purchases add approvals, which adds to the risk of customers approving without reading. The check catches a planted instruction only when it produces an off-plan purchase. It cannot detect one that changes how the agent shops within the plan.
+
 ## 010: Follow Visa's approach to agent identity, and design around the moment of payment
 
 - **Date:** 2026-11-08

@@ -156,9 +156,12 @@ function handleWallet(res, pathname, body, { user, guard, agent }) {
   if (pathname === '/api/rules') {
     guard.setRules(body);
   } else if (revoke) {
-    guard.revokeConnection(revoke[1]);
+    const revocation = guard.revokeConnection(revoke[1]);
+    return sendJson(res, 200, { ...guard.snapshot(), revocation });
   } else if (pathname === '/api/agent/plan') {
-    return sendJson(res, 200, agent.plan());
+    return sendJson(res, 200, agent.plan(body.connectionId));
+  } else if (pathname === '/api/agent/injection') {
+    if (!agent.simulateInjection(agentTokenFor(user, body.connectionId))) throw new GuardError('The agent is already shopping.', 409);
   } else if (pathname === '/api/agent/run') {
     const { items } = body;
     if (!Array.isArray(items) || items.length === 0 || !items.every(Number.isInteger)) throw new GuardError('Choose at least one item.');

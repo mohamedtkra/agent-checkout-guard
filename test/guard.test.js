@@ -142,7 +142,7 @@ test('the mock agent stops after access is revoked mid-run', async () => {
   await run;
 
   assert.equal(guard.purchases.at(-1).code, 'no_access');
-  assert.equal(guard.purchases.length, 5);
+  assert.equal(guard.purchases.length, 4);
   assert.equal(guard.snapshot().spentCents, 8574);
 });
 

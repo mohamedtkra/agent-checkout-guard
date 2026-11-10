@@ -1,4 +1,4 @@
-import { allClear, approvalRows, approvalSheet, balanceCard, button, codeBubble, el, hideSheet, icon, image, liveStatus, planList, receipt, selectedPlanItems, showSheet, steps, successPanel, trailList, transactionList, TRUST_LEVELS, trustPicker } from '../shared/ui.js';
+import { agentFilter, agentHistory, allClear, approvalRows, approvalSheet, balanceCard, button, codeBubble, el, hideSheet, icon, image, liveStatus, planList, planSummary, receipt, revokeConfirm, revokeDone, selectedPlanItems, showSheet, steps, successPanel, trailList, transactionList, TRUST_LEVELS, trustPicker } from '../shared/ui.js';
 import { MockAgent, UNCLEARED_CHARGE } from '../engine/agent.js';
 import { Guard } from '../engine/guard.js';
 import { MemoryConnections } from '../engine/memory-connections.js';
@@ -27,7 +27,7 @@ let ui = freshUi();
 const seenPending = new Set();
 
 function freshUi() {
-  return { tab: 'home', segment: 'purchases', flow: null, plan: null, reportId: null, refundId: null, receiptId: null, shopAgent: null, sheetId: null, sheetKey: null };
+  return { tab: 'home', segment: 'purchases', flow: null, plan: null, reportId: null, refundId: null, receiptId: null, shopAgent: null, sheetId: null, sheetKey: null, revoke: null, historyId: null, activityAgent: null };
 }
 
 function initialConfig() {
@@ -208,6 +208,8 @@ function showTab(tab) {
   ui.reportId = null;
   ui.refundId = null;
   ui.receiptId = null;
+  ui.revoke = null;
+  ui.historyId = null;
   renderPhone(true);
 }
 
@@ -457,7 +459,37 @@ function homeView(snapshot) {
   return wrap;
 }
 
+function confirmRevoke() {
+  safely(() => {
+    ui.revoke.result = runtime.guard.revokeConnection(ui.revoke.connectionId);
+    renderPhone(true);
+  });
+}
+
+function openHistory(connectionId) {
+  ui.revoke = null;
+  ui.historyId = connectionId;
+  renderPhone(true);
+}
+
+function revokeView(snapshot) {
+  if (ui.revoke.result) {
+    return revokeDone({ result: ui.revoke.result, money, onBack: () => showTab('agents'), onHistory: () => openHistory(ui.revoke.connectionId) });
+  }
+  const connection = snapshot.connections.find((c) => c.id === ui.revoke.connectionId);
+  return revokeConfirm({ connection, purchases: snapshot.purchases, money, onKeep: () => showTab('agents'), onRevoke: confirmRevoke });
+}
+
+function historyView(snapshot) {
+  const wrap = el('div');
+  const connection = snapshot.connections.find((c) => c.id === ui.historyId);
+  wrap.append(button('back', '‹ Agents', () => showTab('agents')), agentHistory({ connection, purchases: snapshot.purchases, money, day, onOpen: openReceipt }));
+  return wrap;
+}
+
 function agentsView(snapshot) {
+  if (ui.revoke) return revokeView(snapshot);
+  if (ui.historyId) return historyView(snapshot);
   if (ui.flow?.stage === 'stepup') return stepUpView();
   if (ui.flow?.stage === 'consent') return consentView();
   if (ui.flow?.stage === 'done') {
@@ -471,8 +503,10 @@ function agentsView(snapshot) {
     name.append(image('badge', connection.icon), el('strong', '', connection.name));
     item.append(row(name, el('span', `tag ${connection.status}`, connection.status === 'active' ? 'Active' : 'Revoked')));
     item.append(el('p', 'muted small', `${money(connection.spentCents)} spent · token ${connection.token}`));
+    const attempts = snapshot.purchases.filter((p) => p.connectionId === connection.id).length;
+    item.append(button('link', `Purchase history (${attempts})`, () => openHistory(connection.id)));
     if (connection.status === 'active') {
-      item.append(button('button danger wide', 'Revoke', () => safely(() => runtime.guard.revokeConnection(connection.id))));
+      item.append(button('button danger wide', 'Revoke', () => { ui.revoke = { connectionId: connection.id, result: null }; renderPhone(true); }));
     }
     return item;
   }) : [el('li', 'empty', 'No agents connected yet.')]));
@@ -514,7 +548,7 @@ function planView() {
   });
   const update = () => {
     const chosen = selectedPlanItems(items);
-    total.textContent = `Total if everything goes ahead: ${money(plan.items.filter((i) => chosen.includes(i.index)).reduce((sum, i) => sum + i.amountCents, 0))}`;
+    total.textContent = planSummary(plan, chosen, money);
     proceed.disabled = chosen.length === 0;
   };
   items.addEventListener('change', update);
@@ -526,9 +560,11 @@ function planView() {
 }
 
 function purchasesList(snapshot) {
-  return snapshot.purchases.length
-    ? transactionList(snapshot.purchases, { money, day, onOpen: openReceipt })
-    : el('p', 'empty', 'Use Run scenario to send the agent shopping.');
+  if (!snapshot.purchases.length) return el('p', 'empty', 'Use Run scenario to send the agent shopping.');
+  const shown = ui.activityAgent ? snapshot.purchases.filter((p) => p.agentId === ui.activityAgent) : snapshot.purchases;
+  const wrap = el('div');
+  wrap.append(agentFilter(snapshot.purchases, snapshot.demoAgents, ui.activityAgent, (id) => { ui.activityAgent = id; renderPhone(true); }), transactionList(shown, { money, day, onOpen: openReceipt }));
+  return wrap;
 }
 
 function logList(snapshot) {
@@ -687,6 +723,8 @@ function renderControls(snapshot) {
   $('#run').disabled = snapshot.agent.running || !hasAgent;
   $('#overreach').hidden = !features().overreach;
   $('#overreach').disabled = snapshot.agent.running || !hasAgent;
+  $('#injection').hidden = !features().overreach;
+  $('#injection').disabled = snapshot.agent.running || !hasAgent;
   $('#next-day').hidden = !features().approvals && !features().creditHolds;
   $('#stage-hint').textContent = hasAgent ? '' : 'Connect an agent in the phone to run the scenario.';
 }
@@ -698,12 +736,7 @@ function renderPhone(force = false) {
   const pending = snapshot.purchases.filter((p) => p.status === 'pending');
   const fresh = pending.find((p) => !seenPending.has(p.id));
   pending.forEach((p) => seenPending.add(p.id));
-  if (fresh && !ui.flow && !ui.reportId && !ui.plan) {
-    ui.tab = 'home';
-    ui.receiptId = null;
-    ui.refundId = null;
-    if (!ui.sheetId) ui.sheetId = fresh.id;
-  }
+  if (fresh && !ui.flow && !ui.reportId && !ui.plan && !ui.revoke && !ui.sheetId) ui.sheetId = fresh.id;
   renderStop(snapshot);
   renderSheet(snapshot);
   if (!fresh && !force && (ui.flow || ui.reportId || ui.plan)) return;
@@ -727,8 +760,13 @@ function runScenario() {
   ui.flow = null;
   ui.reportId = null;
   ui.refundId = null;
-  ui.plan = { ...runtime.agent.plan(), connectionId: connection.id };
+  ui.plan = { ...runtime.agent.plan(connection.id), connectionId: connection.id };
   renderPhone(true);
+}
+
+function simulateInjection() {
+  const connection = selectedConnection(state());
+  if (connection) runtime.agent.simulateInjection(runtime.connections.tokenFor(connection.id));
 }
 
 function simulateOverreach() {
@@ -748,6 +786,7 @@ function simulateOverreach() {
 $('#run').addEventListener('click', runScenario);
 $('#next-day').addEventListener('click', () => runtime.guard.advanceDay());
 $('#overreach').addEventListener('click', simulateOverreach);
+$('#injection').addEventListener('click', simulateInjection);
 $('#reset').addEventListener('click', buildRuntime);
 $('#copy-link').addEventListener('click', copyShareLink);
 $('#export-spec').addEventListener('click', exportSpec);
